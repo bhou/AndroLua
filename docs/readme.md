@@ -341,9 +341,11 @@ Threading and Lua do not mix very well, since any particular Lua state is not th
 
 The code that's actually run in a different thread/state is referenced by _module name_ - since it's tricky to copy functions across to different Lua states. The `data` is any Java-compatible data - in particular, you may _not_ pass a Lua table. But you can pass numbers, strings, Java arrays and other Java objects like hashmaps.
 
+The module must return a function which is passed a reference to the thread object and the data parameter, and returns the result. It's called in protected mode and your callback can get the error if anything blew up.
+
 This currently uses `AsyncTask`, and works in a similar way; your `on_progress` handler will be called whenever the threaded code calls `setProgress` and `on_post` will be called at the end with either the result, or `nil` plus the error message.
 
-The `android.async` module has a few canned recipes - for instance `async.read_http(request,false,callback)` will grab a HTTP request in the background and pass the result as a string to the callback.
+The `android.async` module has a few canned recipes - for instance `async.read_http(request,false,callback)` will grab a HTTP request in the background and pass the result as a string to the callback.  This is a common operation in these days of web services and it's important not to hog the main GUI thread while doing so.  It runs the `android.http_async` module on a separate thread.
 
 
 ## Custom Views
