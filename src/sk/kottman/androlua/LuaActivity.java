@@ -58,6 +58,17 @@ public class LuaActivity extends Activity implements ServiceConnection {
 		if (service != null)
 			service.invokeMethod(modTable,"onStart");
 	}
+	@Override
+	public void onSaveInstanceState(Bundle outState) {
+		super.onSaveInstanceState(outState);
+		if (service != null)
+			service.invokeMethod(modTable, "onSaveInstanceState", outState);
+	}
+	
+	@Override
+	public void onRestoreInstanceState(Bundle savedState) {
+
+	}
 	
 	@Override
 	public void onStop() {
@@ -111,7 +122,6 @@ public class LuaActivity extends Activity implements ServiceConnection {
 	public void onServiceConnected(ComponentName name, IBinder iservice) {
 		Log.d("lua","setting activity");		
 		service = ((Lua.LocalBinder)iservice).getService();
-		service.setGlobal("activity", this);
 		modTable = service.require(modName);
 		if (modTable == null) {
 			finish();
@@ -130,7 +140,7 @@ public class LuaActivity extends Activity implements ServiceConnection {
 				res = modTable.call(new Object[]{this,arg,state});
 		    	modTable = null;
 		    } else {
-		    	res = service.invokeMethod(modTable,"onCreate",this,arg);
+		    	res = service.invokeMethod(modTable,"onCreate",this,arg,state);
 		    }
 		} catch (LuaException e) {
 			log("onCreate "+e.getMessage());
@@ -149,6 +159,9 @@ public class LuaActivity extends Activity implements ServiceConnection {
 	    }	    		
 	    
 	    service.invokeMethod(modTable,"onStart");
+	    if (state != null) {
+			super.onRestoreInstanceState(state);
+	    }
 	    service.invokeMethod(modTable,"onResume");
 		
 	}

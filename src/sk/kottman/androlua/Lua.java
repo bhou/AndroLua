@@ -38,7 +38,7 @@ public class Lua extends Service {
 	}
 	
 	private final IBinder binder = new LocalBinder();	
-	
+
 	public static LuaState newState(boolean startServer) {
 		LuaState L = LuaStateFactory.newLuaState();
 		L.openLibs();
@@ -52,28 +52,29 @@ public class Lua extends Service {
 						String val = null;
 						if (stype.equals("userdata")) {
 							Object obj = L.toJavaObject(i);
-							if (obj != null)
+							if (obj != null) // handle Java objects specially...
 								val = obj.toString();
-						} else if (stype.equals("boolean")) {
-							val = L.toBoolean(i) ? "true" : "false";
-						} else {
-							val = L.toString(i);
 						}
-						if (val == null)
-							val = stype;						
+						if (val == null) {
+							L.getGlobal("tostring");
+							L.pushValue(i);
+							L.call(1, 1);
+							val = L.toString(-1);
+							L.pop(1);
+						}						
 						output.append(val);
 						output.append("\t");
 					}
 					output.append("\n");
 					
 					synchronized (L) {
+						String out = output.toString();
 						if (! printToString && printer != null) {
-							printer.println(output.toString() + REPLACE);
+							printer.println(out + REPLACE);
 							printer.flush();
 							output.setLength(0);						
 						}
-					}
-					
+					}					
 					return 0;
 				}
 			};
@@ -196,7 +197,7 @@ public class Lua extends Service {
 	public void onDestroy() {
 		super.onDestroy();
 		log("destroying Lua service");
-		serverThread.close();
+		serverThread.close(); 
 		L.close();
 		L = null;
 	}
@@ -205,6 +206,7 @@ public class Lua extends Service {
 		if (printer != null) {
 			printer.println(msg + REPLACE);
 			printer.flush();
+			Log.d("lua",msg);
 		} else {
 			Log.d("lua",msg);
 		}
@@ -217,7 +219,7 @@ public class Lua extends Service {
 			L.getGlobal("debug");
 			L.getField(-1, "traceback");
 			L.remove(-2);
-			L.insert(-2);
+			L.insert(-2); 
 			printToString = true;
 			ok = L.pcall(0, 0, -2);
 			printToString = false;
@@ -226,7 +228,7 @@ public class Lua extends Service {
 				output.setLength(0);
 				return res;
 			}
-		}
+		}		
 		throw new LuaException(errorReason(ok) + ": " + L.toString(-1));
 		//return null;		
 		
@@ -323,12 +325,15 @@ public class Lua extends Service {
 							new InputStreamReader(client.getInputStream()));
 					final PrintWriter out = new PrintWriter(client.getOutputStream());
 					String line = in.readLine();
-					if (line.equals("yes")) {						
+					if (line.equals("yes")) { // async output goes to 3334						
 						out.println("waiting ");
 						out.flush();						
 						writer = writeServer.accept();
 						//Log.d("client","writer accepted");
-						printer = new PrintWriter(writer.getOutputStream());						
+						printer = new PrintWriter(writer.getOutputStream());
+					} else if (line.equals("combine")) { // _all_ output goes to 3333!
+						printer = out;
+						writer = null;
 					} else {
 						writer = null;
 						printer = null;

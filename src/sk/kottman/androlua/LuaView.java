@@ -32,5 +32,17 @@ public class LuaView extends View {
 		service.invokeMethod(modTable, "onSizeChanged", w,h,oldw,oldh);
 	}
 	
+	@Override
+	public void onMeasure(int wspec, int hspec) {
+		Object res = service.invokeMethod(modTable, "onMeasure", wspec,hspec);
+		if (res == null)
+			super.onMeasure(wspec, hspec);
+			
+	}
+	
+	public void measuredDimension(int w, int h) {
+		setMeasuredDimension(w,h);
+	}
+	 
 
 }
