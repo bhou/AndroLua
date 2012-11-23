@@ -1,12 +1,11 @@
 --- ELVA.lua
 -- Expandable List View Adapter using a Lua table.
 require 'import'
-local lS = service
-local DataSetObserver = bind 'android.database.DataSetObserver'
+
 
 return function(groups,overrides)
     local ELA = {}
-    local my_observer
+    local my_observable = bind 'android.database.DataSetObservable'()
 
     function ELA.areAllItemsEnabled ()
         return true
@@ -57,40 +56,52 @@ return function(groups,overrides)
     end
 
     function ELA.onGroupCollapsed (groupPos)
-        print('collapse',groupPos)
+        --print('collapse',groupPos)
     end
 
     function ELA.onGroupExpanded (groupPos)
-        print('expand',groupPos)
+        --print('expand',groupPos)
     end
 
     function ELA.registerDataSetObserver (observer)
-        my_observer = observer
+        my_observable:registerObserver(observer)
     end
 
     function ELA.unregisterDataSetObserver (observer)
-        my_observer = nil
+        my_observable:unregisterObserver(observer)
     end
 
-    if not overrides.getGroupView or not overrides.getChildView then error('must override getGroupView and getChildView') end
+    function ELA.notifyDataSetChanged()
+        my_observable:notifyChanged()
+    end
 
-    local getGroupView = overrides.getGroupView
-    ELA.getGroupView = function(groupPos,expanded,view,parent)
+    function ELA.notifyDataSetInvalidated()
+        my_observable:notifyInvalidated()
+    end
+
+    local getGroupView, getChildView = overrides.getGroupView, overrides.getChildView
+    if not getGroupView or not getChildView then
+        error('must override getGroupView and getChildView')
+    else
+        overrides.getGroupView = nil
+        overrides.getChildView = nil
+        getGroupView = android.safe(getGroupView)
+        getChildView = android.safe(getChildView)
+    end
+
+    function ELA.getGroupView (groupPos,expanded,view,parent)
         return getGroupView(ELA.getGroup(groupPos),groupPos,expanded,view,parent)
     end
-    overrides.getGroupView = nil
 
-    local getChildView = overrides.getChildView
-    ELA.getChildView = function(groupPos,childPos,lastChild,view,parent)
-        return getChildView(ELA.getChild(groupPos,childPos),groupPos,childPos,lastChild,view,parent)
+    function ELA.getChildView (groupPos,childPos,lastChild,view,parent)
+        return getChildView (ELA.getChild(groupPos,childPos),groupPos,childPos,lastChild,view,parent)
     end
-    overrides.getChildView = nil
 
     -- allow for overriding any of the others...
     for k,v in pairs(overrides) do
         ELA[k] = v
     end
 
-    return proxy('android.widget.ExpandableListAdapter',ELA)
+    return proxy('android.widget.ExpandableListAdapter,sk.kottman.androlua.NotifyInterface',ELA)
 
 end
