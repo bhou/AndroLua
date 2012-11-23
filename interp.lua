@@ -40,15 +40,16 @@ local addr = arg[2] or 'localhost'
 local c = socket.connect(addr,3333)
 local req = arg[1] or 'no'
 c:send (req..'\n')
+require 'winapi'
+local m = winapi.mutex()
 if req == 'yes' then
-    require 'winapi'
     c:receive()
     c2,err = socket.connect(addr,3334)
     if err then
       c:close()
       return print('cannot connect to secondary socket',err)
     end
-    local m = winapi.mutex()
+    --
     t = winapi.thread(function()
     while true do
         local res = c2:receive()
@@ -77,7 +78,9 @@ end
 
 function eval(line)
   c:send(line..'\n')
+  m:lock()
   local res = c:receive()
+  m:release()
   return (res or '?'):gsub('\001','\n')
 end
 

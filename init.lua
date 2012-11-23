@@ -4,6 +4,13 @@ function goapp(mod,arg)
     service:launchLuaActivity(activity,mod,arg)
 end
 
+function killapp()
+-- until we get it right...
+--~     if current_activity ~= activity then
+--~         current_activity:finish()
+--~     end
+end
+
 PK = luajava.package
 W = PK 'android.widget'
 G = PK 'android.graphics'
