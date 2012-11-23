@@ -12,6 +12,10 @@ local InputType = bind 'android.text.InputType'
 
 function main.create(me)
     local a = me.a
+
+    -- yes, it's a global!
+    activity = a
+
     me:set_content_view 'main'
     local ctrls = me:wrap_widgets()
     local status = ctrls.statusText
@@ -34,21 +38,10 @@ function main.create(me)
         end
     end)
 
-    local input_type = ctrls.source:getInputType()
-    input_type = InputType.TYPE_CLASS_TEXT + InputType.TYPE_TEXT_FLAG_MULTI_LINE
-    ctrls.source:setInputType( input_type + InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+    me:on_click(ctrls.exampleBtn,function()
+        me:luaActivity("example.launch")
+    end)
 
-    local function launch (name)
-        return function() me:luaActivity('example.'..name) end
-    end
-
-    me:context_menu {
-        view = ctrls.source;
-        "list",launch 'list',
-        "draw",launch 'draw',
-        "pretty",launch 'pretty',
-
-    }
     return true
 end
 

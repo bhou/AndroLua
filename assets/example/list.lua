@@ -36,22 +36,23 @@ function list.create (me,arg)
         local item = items[position+1]
         local txt1,txt2
         if not view then
-            txt1 = me:textView{id = 1, size = '20sp'}
-            txt2 = me:textView{id = 2, background = '#222222'}
+            txt1 = me:textView{id = 10, size = '20sp'}
+            txt2 = me:textView{id = 20, background = '#222222'}
             view = me:hbox{
-                txt1,'+',
-                me:hbox{
-                    txt2,
-                    {fill=false,width=100,gravity='CENTER'}
-                }
+                id = 1,
+                txt1,'+',txt2
             }
         else
-            txt1 = view:findViewById(1)
-            txt2 = view:findViewById(2)
+            txt1 = view:findViewById(10)
+            txt2 = view:findViewById(20)
         end
+        if not pcall(function()
         txt1:setText(item.name)
         txt2:setText(item.type)
         txt1:setTextColor(item.type=='table' and tableclr or otherclr)
+        end) then
+            print(txt1,txt2,'que?')
+        end
         return view
     end)
 
