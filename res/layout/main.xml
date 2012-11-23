@@ -4,17 +4,31 @@
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     >
-    <Button android:text="Execute!" 
-        android:id="@+id/executeBtn" 
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">        
+    <LinearLayout
+    android:orientation="horizontal"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"         
+    >
+    <Button android:text="Execute" 
+        android:id="@+id/executeBtn"
+        android:layout_weight="1" 
+        android:layout_width="wrap_content"        
+        android:layout_height="fill_parent">        
     </Button>
+    <Button android:text="Examples" 
+        android:id="@+id/exampleBtn" 
+        android:layout_weight="1"
+        android:layout_width="wrap_content"
+        android:layout_height="fill_parent">        
+    </Button>    
+    </LinearLayout>
     <EditText android:layout_width="match_parent"
          android:layout_height="fill_parent"
           android:layout_weight="1" android:id="@+id/source"
           android:longClickable="true" android:typeface="monospace"
           android:scrollbars="vertical"
           android:textSize="12sp" 
+          android:inputType="textMultiLine|textNoSuggestions"
           android:gravity="top|left">        
     </EditText>
     <TextView android:text="TextView" 
