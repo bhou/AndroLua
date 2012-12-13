@@ -409,7 +409,12 @@ public class LuaObject
 	 * @return Object[] - Returned Objects
 	 * @throws LuaException
 	 */
-	public Object[] call(Object[] args, int nres) throws LuaException
+	public Object[] call(Object[] args, int nres) throws LuaException 
+	{		
+		return call(args,nres,false);
+	}
+	
+	public Object[] call(Object[] args, int nres, boolean trace) throws LuaException
 	{
 		synchronized (L)
 		{
@@ -418,71 +423,73 @@ public class LuaObject
 			}
 
 			int top = L.getTop();
-			push();
+			push(); // ourselves..
 			int nargs;
-			if (args != null)
-			{
+			if (args != null) {
 				nargs = args.length;
-				for (int i = 0; i < nargs; i++)
-				{
-					Object obj = args[i];
-					L.pushObjectValue(obj);
+				for (int i = 0; i < nargs; i++) {
+					L.pushObjectValue(args[i]);
 				}
-			}
-			else
+			} else { 
 				nargs = 0;
+			}
+			
+			int errh = 0;
+			if (trace) {
+				// stack now has function followed by arguments
+				errh = L.getTop() - nargs; // the function
+				// push debug.traceback
+				L.getGlobal("debug");
+				L.getField(-1,"traceback");
+				L.remove(-2); // debug table
+				// put it under chunk and args
+				L.insert(errh);
+			}
 
+			int err = L.pcall(nargs, nres, errh);
 
-
-			int err = L.pcall(nargs, nres, 0);
-
-			if (err != 0)
-			{
+			if (err != 0) {
 				String str;
-				if (L.isString(-1))
-				{
+				if (L.isString(-1)) {
 					str = L.toString(-1);
 					L.pop(1);
-				}
-				else
+				} else { //*hm, it might be some object. Can try tostring on it?
 					str = "";
+				}
 
-				if (err == LuaState.LUA_ERRRUN.intValue())
-				{
-					str = "Runtime: " + str;
-				}
-				else if (err == LuaState.LUA_ERRMEM.intValue())
-				{
-					str = "Memory:. " + str;
-				}
-				else if (err == LuaState.LUA_ERRERR.intValue())
-				{
-					str = "Error handler: " + str;
-				}
-				else
-				{
-					str = "Lua Error code " + err + ". " + str;
-				}
-				LuaJavaAPI.throwLuaException(L,str);
+				LuaJavaAPI.throwLuaException(L,errorReason(err) + str);
 			}
 
-			if (nres == LuaState.LUA_MULTRET.intValue())
+			if (nres == LuaState.LUA_MULTRET.intValue()) {
 				nres = L.getTop() - top;
+			}
 
-			if (L.getTop() - top < nres)
-			{
+			if (L.getTop() - top < nres) {
 				LuaJavaAPI.throwLuaException(L,"Invalid Number of Results .");
 			}
 
 			Object[] res = new Object[nres];
 
-			for (int i = nres; i > 0; i--)
-			{
+			for (int i = nres; i > 0; i--) 	{
 				res[i - 1] = L.toJavaObject(-1);
 				L.pop(1);
 			}
 			return res;
 		}
+	}
+	
+	public static String errorReason(int err) {
+		switch (err) {
+		case 4:
+			return "Out of memory";
+		case 3:
+			return "Syntax";
+		case 2:
+			return "Runtime";
+		case 1:
+			return "Yield";
+		}
+		return "Unknown error " + err;		
 	}
 
 	/**

@@ -1113,22 +1113,22 @@ public class LuaState
 	 * @param retType type to convert to
 	 * @return The converted number
 	 */
-	public static Number convertLuaNumber(Double db, Class retType)
+	public static Number convertLuaNumber(double db, Class retType)
 	{
 	  // checks if retType is a primitive type
     if (retType.isPrimitive())
     {
       if (retType == Integer.TYPE)
       {
-        return new Integer(db.intValue());
+        return Integer.valueOf((int)db); //db.intValue());
       }
       else if (retType == Long.TYPE)
       {
-        return new Long(db.longValue());
+        return Long.valueOf((long)db);
       }
       else if (retType == Float.TYPE)
       {
-        return new Float(db.floatValue());
+        return Float.valueOf((float)db);
       }
       else if (retType == Double.TYPE)
       {
@@ -1136,11 +1136,11 @@ public class LuaState
       }
       else if (retType == Byte.TYPE)
       {
-        return new Byte(db.byteValue());
+        return new Byte((byte)db);
       }
       else if (retType == Short.TYPE)
       {
-        return new Short(db.shortValue());
+        return new Short((short)db);
       }
     }
     else if (retType.isAssignableFrom(Number.class))
@@ -1148,15 +1148,15 @@ public class LuaState
       // Checks all possibilities of number types
       if (retType.isAssignableFrom(Integer.class))
       {
-        return new Integer(db.intValue());
+        return Integer.valueOf((int)db);
       }
       else if (retType.isAssignableFrom(Long.class))
       {
-        return new Long(db.longValue());
+        return Long.valueOf((long)db);
       }
       else if (retType.isAssignableFrom(Float.class))
       {
-        return new Float(db.floatValue());
+        return Float.valueOf((float)db);
       }
       else if (retType.isAssignableFrom(Double.class))
       {
@@ -1164,11 +1164,11 @@ public class LuaState
       }
       else if (retType.isAssignableFrom(Byte.class))
       {
-        return new Byte(db.byteValue());
+        return new Byte((byte)db);
       }
       else if (retType.isAssignableFrom(Short.class))
       {
-        return new Short(db.shortValue());
+        return new Short((short)db);
       }
     }
 
