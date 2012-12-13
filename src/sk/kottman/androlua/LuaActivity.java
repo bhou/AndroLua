@@ -34,6 +34,10 @@ public class LuaActivity extends Activity implements ServiceConnection {
 		Lua.bind(this, this);	    
 	}
 	
+	protected void setLuaModule(CharSequence mod) {
+		getIntent().putExtra("LUA_MODULE", mod);
+	}
+	
 	@Override
 	protected void onActivityResult(int request, int result, Intent data) {
 		service.invokeMethod(modTable,"onActivityResult",request,result,data);

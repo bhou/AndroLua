@@ -1,6 +1,6 @@
 package sk.kottman.androlua;
 
-import org.keplerproject.luajava.LuaException;
+import org.keplerproject.luajava.*;
 
 import android.view.View;
 import android.view.ViewGroup;
@@ -10,18 +10,29 @@ public class LuaListAdapter extends BaseAdapter {
 
 	Lua lua;
 	Object impl, mod;
+	LuaState L;
 	
 	public LuaListAdapter(Lua l, Object mod, Object impl) {
 		lua = l;
+		L = Lua.L;
 		this.impl = impl;
 		this.mod = mod;
 	}
+	
+	public void setTable(Object mod) {
+		this.mod = mod;
+		notifyDataSetChanged();
+	}
+	
+	public Object getTable(Object mod) {
+		return mod;
+	}	
 
 	public int getCount() {
 		try {
-			Lua.L.pushObjectValue(mod);
-			int len = lua.L.objLen(-1);
-			Lua.L.pop(1);
+			L.pushObjectValue(mod);
+			int len = L.objLen(-1);
+			L.pop(1);
 			return len;
 		} catch (LuaException e) {
 			return 0;
@@ -30,10 +41,11 @@ public class LuaListAdapter extends BaseAdapter {
 
 	public Object getItem(int position) {
 		try {
-			Lua.L.pushObjectValue(mod);
-			Lua.L.rawGetI(-1, position);
-			Object res = Lua.L.toJavaObject(-1);
-			Lua.L.pop(1);  //2?
+			L.pushObjectValue(mod);
+			L.pushInteger(position+1);
+			L.getTable(-2);
+			Object res = L.toJavaObject(-1);
+			L.pop(1);  //2?
 			return res;
 		} catch (LuaException e) {
 			return null;
@@ -46,7 +58,20 @@ public class LuaListAdapter extends BaseAdapter {
 	}
 
 	public View getView(int position, View convertView, ViewGroup parent) {
-		return (View)lua.invokeMethod(impl, "getView",impl,position,convertView,parent);
+		View v = (View)lua.invokeMethod(impl, "getView",impl,position,convertView,parent);
+		if (v == null) { // oops an error in getView!
+			v = parent;
+			L.newTable();
+			try {
+				mod = L.toJavaObject(-1);
+			} catch (LuaException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			L.pop(1);
+			notifyDataSetChanged();
+		}
+		return v;
 	}
 
 }

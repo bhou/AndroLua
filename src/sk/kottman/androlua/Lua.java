@@ -79,15 +79,20 @@ public class Lua extends Service {
 				}
 			};
 			
+			final AssetManager am = main_instance.getAssets();
+			
 			JavaFunction assetLoader = new JavaFunction(L) {
 				@Override
 				public int execute() throws LuaException {
 					String name = L.toString(-1);
-
-					AssetManager am = main_instance.getAssets();
+					name = name.replace('.', '/');
+					InputStream is;
 					try {
-						name = name.replace('.', '/');
-						InputStream is = am.open(name + ".lua");
+						try {
+							is = am.open(name + ".lua");
+						} catch (IOException e) {
+							is = am.open(name + "/init.lua");
+						}						
 						byte[] bytes = readAll(is);
 						L.LloadBuffer(bytes, name);
 						return 1;
@@ -111,7 +116,8 @@ public class Lua extends Service {
 			L.pop(1);                          // package
 						
 			L.getField(-1, "path");            // package path
-			String customPath = main_instance.getFilesDir() + "/?.lua";
+			String filesDir = main_instance.getFilesDir().toString();
+			String customPath = filesDir+"/?.lua;"+filesDir+"/?/init.lua";
 			L.pushString(";" + customPath);    // package path custom
 			L.concat(2);                       // package pathCustom
 			L.setField(-2, "path");            // package
@@ -217,9 +223,11 @@ public class Lua extends Service {
 		int ok = L.LloadBuffer(src.getBytes(),chunkName);
 		if (ok == 0) {
 			L.getGlobal("debug");
-			L.getField(-1, "traceback");
+			L.getField(-1,"traceback");
+			// stack is now -3 chunk -2 debug -1 traceback
 			L.remove(-2);
-			L.insert(-2); 
+			L.pushValue(-2);			
+			//L.insert(-2); 
 			printToString = true;
 			ok = L.pcall(0, 0, -2);
 			printToString = false;
@@ -229,9 +237,7 @@ public class Lua extends Service {
 				return res;
 			}
 		}		
-		throw new LuaException(errorReason(ok) + ": " + L.toString(-1));
-		//return null;		
-		
+		throw new LuaException(LuaObject.errorReason(ok) + ": " + L.toString(-1));
 	}	
 	
 	public void setGlobal(String name, Object value) {
@@ -290,20 +296,6 @@ public class Lua extends Service {
 			res = e.getMessage()+"\n";
 		}
 		return res;		
-	}	
-	
-	private static String errorReason(int error) {
-		switch (error) {
-		case 4:
-			return "Out of memory";
-		case 3:
-			return "Syntax";
-		case 2:
-			return "Runtime";
-		case 1:
-			return "Yield";
-		}
-		return "Unknown error " + error;
 	}
 	
 	private class ServerThread extends Thread {
