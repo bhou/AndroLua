@@ -41,6 +41,19 @@ import java.util.Map;
  */
 public final class LuaJavaAPI
 {
+	
+  private static class MethodType {
+	  public Object[] args;
+	  public Class[] types;
+	  
+	  public MethodType(Object[] args, Class[] types) {
+		  this.args = args;
+		  this.types = types;
+	  }
+  }
+  
+  static Map<Class,Method[]> classCache = new HashMap<Class,Method[]>();
+  static Map<Method,MethodType> methodCache = new HashMap<Method,MethodType>();
 
   private LuaJavaAPI()
   {
@@ -62,18 +75,19 @@ public final class LuaJavaAPI
    * @param methodName the name of the method
    * @return number of returned objects
    */
-  public static int objectIndex(int luaState, Object obj, String methodName)
+  public static int objectIndex(int luaState, int doCall, Object obj, String methodName)
       throws LuaException
   {
     LuaState L = LuaStateFactory.getExistingState(luaState);
 
     synchronized (L)
-    {
+    { 
       int top = L.getTop();
       Object[] objs = new Object[top - 1];
       Method method = null;
       Class clazz; 
-
+      Object ret; 
+      
       if (obj instanceof Class)
       {
         clazz = (Class) obj; 
@@ -97,44 +111,68 @@ public final class LuaJavaAPI
       {
         throwLuaException(L,"No such method: "+methodName);
       }
+      
+      if (doCall == 1) {
+    	  ret = callMethod(L,method,obj,objs);
+	      // Void function returns null
+	      if (ret == null) {
+	        return 0;
+	      }
+      } else {
+    	  ret = method;
+    	  methodCache.put(method, new MethodType(objs,method.getParameterTypes()));
+      }
+      // push result
+      L.pushObjectValue(ret);
+      return 1;
+    }
+  }
+  
+  public static int callJavaMethod(int luaState, Object obj, Object _method)
+	      throws LuaException
+{
+    LuaState L = LuaStateFactory.getExistingState(luaState);
 
+    synchronized (L)
+    { 
+	    Method method = (Method)_method;
+	    MethodType mt = methodCache.get(method);
+	    Object[] objs = mt.args;
+	    Class[] types = mt.types; 
+	    for (int i = 0; i < types.length; i++) {
+	    	objs[i] = compareTypes(L, types[i], i+2);
+	    }
+	    Object ret = callMethod(L,method,obj,objs);
+	    if (ret == null) // void method doesn't return value
+	    	return 0; 
+	    L.pushObjectValue(ret);
+    	return 1;
+    }
+ }	    
+  
+  static Object callMethod(LuaState L,Method method, Object obj, Object[] objs) throws LuaException
+  {
       Object ret = null;
-      try
+      try 
       {
-        if(Modifier.isPublic(method.getModifiers()))
-        {
+    	int mods = method.getModifiers();
+        if(Modifier.isPublic(mods))  {
           method.setAccessible(true);
         }
-
-        //if (obj instanceof Class)
-        if (Modifier.isStatic(method.getModifiers()))
-        {
+        if (Modifier.isStatic(mods))  {
           ret = method.invoke(null, objs);
-        }
-        else
-        {
+        } else {
           ret = method.invoke(obj, objs);
         }
       }
       catch (InvocationTargetException e) {
     	  Throwable cause = e.getCause();
-    	  throwLuaException(L,methodName+" "+(cause!=null?cause.getMessage():"unknown error"));
+    	  throwLuaException(L,method.getName()+" "+(cause!=null?cause.getMessage():"unknown error"));
       }
-      catch (Exception e)
-      {
+      catch (Exception e) {
         throwLuaException(L,e.getMessage());
       }
-
-      // Void function returns null
-      if (ret == null)
-      {
-        return 0;
-      }
-      // push result
-      L.pushObjectValue(ret);
-
-      return 1;
-    }
+      return ret;	  
   }
 
   /**
@@ -591,7 +629,8 @@ public final class LuaJavaAPI
     }
   }
 
-  private static Object compareTypes(LuaState L, Class parameter, int idx)
+  @SuppressWarnings("unchecked")
+private static Object compareTypes(LuaState L, Class parameter, int idx)
     throws LuaException
   {
     boolean okType = true;
@@ -610,7 +649,7 @@ public final class LuaJavaAPI
       {
         okType = false;
       }
-      obj = new Boolean(L.toBoolean(idx));
+      obj = Boolean.valueOf(L.toBoolean(idx));
     }
     else if (L.type(idx) == LuaState.LUA_TSTRING.intValue())
     {
@@ -647,9 +686,7 @@ public final class LuaJavaAPI
     }
     else if (L.type(idx) == LuaState.LUA_TNUMBER.intValue())
     {
-      Double db = new Double(L.toNumber(idx));
-
-      obj = LuaState.convertLuaNumber(db, parameter);
+      obj = LuaState.convertLuaNumber(L.toNumber(idx), parameter);
       if (obj == null)
       {
         okType = false;
@@ -698,7 +735,7 @@ public final class LuaJavaAPI
     return obj; 
   }
   
-  static Map<Class,Method[]> classCache = new HashMap<Class,Method[]>();
+  
 
   private static Method getMethod(LuaState L, Class clazz, String methodName, Object[] retObjs, int top)
   {
@@ -714,11 +751,12 @@ public final class LuaJavaAPI
      // gets method and arguments
      for (int i = 0; i < methods.length; i++)
      {
-       if (! methods[i].getName().equals(methodName)) {
+       Method m = methods[i];
+       if (! m.getName().equals(methodName)) {
          continue;
        }
 
-       Class[] parameters = methods[i].getParameterTypes();
+       Class[] parameters = m.getParameterTypes();
        if (parameters.length != top - 1)
          continue;
 
