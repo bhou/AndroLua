@@ -165,11 +165,10 @@ function make_array (Type,list)
     end
     local arr = Array:newInstance(Type,len)
     if arr == nil then return end
-    if init then pcall(function()
+    if init then
         for i,v in ipairs(list) do
-            Array:set(arr,i-1,v)
+            arr[i] = v
         end
-      end)
     end
     return arr
 end

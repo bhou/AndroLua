@@ -1,3 +1,5 @@
+--- Androlua plot library.
+-- @module android.plot
 local G = luajava.package 'android.graphics'
 local L = luajava.package 'java.lang'
 local V = luajava.package 'android.view'
@@ -25,11 +27,30 @@ local function union (A,B)
     if A.top < B.top then A.top = B.top end
 end
 
+local Color = G.Color
 local FILL,STROKE = G.Paint_Style.FILL,G.Paint_Style.STROKE
-local WHITE,BLACK = G.Color.WHITE, G.Color.BLACK
+local WHITE,BLACK = Color.WHITE, Color.BLACK
+
+local set_alpha
 
 local function PC (clr,default)
+    if type(clr) == 'string' then
+        local c,alpha = clr:match '([^:]+):(.+)'
+        if alpha then
+            print(c,alpha)
+            c = PC(c)
+            alpha = tonumber(alpha)
+            return set_alpha(c,alpha)
+        end
+    end
     return android.parse_color(clr or default)
+end
+
+function set_alpha (c,alpha)
+    c = PC(c)
+    local R,G,B = Color:red(c),Color:green(c),Color:blue(c)
+    alpha = (alpha/100)*255
+    return Color:argb(alpha,R,G,B)
 end
 
 local function stroke ()
@@ -72,43 +93,63 @@ local function text_paint (size,clr)
     return style
 end
 
-local Series,Axis,Legend,Anot = {},{},{},{}
+local function plot_object_array ()
+    local arr = array()
+    arr:forall_method 'update'
+    arr:forall_method 'draw'
+    return arr
+end
 
---local colours = {G.Color.BLACK,G.Color.BLUE,G.Color.RED}
+local flot_colours = {PC"#edc240", PC"#afd8f8", PC"#cb4b4b", PC"#4da74d", PC"#9440ed"}
+
+local Series,Axis,Legend,Anot = {},{},{},{}
 
 function Plot.new (t)
     local self = make_object({},Plot)
-    self.background = fill_paint(t.background or WHITE)
-    self.area = fill_paint(t.fill or WHITE)
-    self.color = t.color or BLACK
+    if not t.theme then
+        t.theme = {textColor='BLACK',background='WHITE'}
+    end
+    t.theme.color = t.theme.color or t.theme.textColor
+    t.theme.colors = t.theme.colors or flot_colours
+    self.background = fill_paint(t.background or t.theme.background)
+    self.area = fill_paint(t.fill or t.theme.background)
+    self.color = t.color or t.theme.color
     self.axis_paint = stroke_paint(self.color)
     self.aspect_ratio = t.aspect_ratio or 1
     self.margin = {}
-    self.series = {}
+    self.series = plot_object_array()
+    self.annotations = plot_object_array()
     self.grid = t.grid
+    if t.axes == false then
+        t.xaxis = {invisible=true}
+        t.yaxis = {invisible=true}
+    end
     self.xaxis = Axis.new(self,t.xaxis or {})
     self.xaxis.horz = true
     self.yaxis = Axis.new(self,t.yaxis or {})
 
-    local W = android.me.metrics.widthPixels
+    self.theme = t.theme
+    self.interactive = t.interactive
 
+    local W = android.me.metrics.widthPixels
     local defpad = W/30
     if t.padding then
         defpad = t.padding
     end
     self.padding = {defpad,defpad,defpad,defpad}
     self.pad = defpad
+    self.sample_width = 2*self.pad
 
-    -- this is the Flot theme...
-    self.colours = {PC"#edc240", PC"#afd8f8", PC"#cb4b4b", PC"#4da74d", PC"#9440ed"}
+    self.colours = self.theme.colors
 
     if #t == 0 then error("must provide at least one Series!") end -- relax this later??
-
     for _,s in ipairs(t) do
-        local series = Series.new (self,s)
-        append(self.series,series)
-        if s.tag then
-            self.series[s.tag] = s
+        self:add_series(s)
+    end
+
+    if t.annotations then
+        for _,a in ipairs(t.annotations) do
+            self:add_annotation(a)
         end
     end
 
@@ -116,65 +157,121 @@ function Plot.new (t)
         self.legend = Legend.new(self,t.legend)
     end
 
-    self.annotations = {}
-    if t.annotations then
-        for _,a in ipairs(t.annotations) do
-            append(self.annotations,Anot.new(self,a))
-        end
-    end
-
     return self
+end
+
+local function add (arr,obj)
+    append(arr,obj)
+    if obj.tag then arr[obj.tag] = obj end
+    obj.idx = #arr
+end
+
+function Plot:add_series (s)
+    add(self.series,Series.new (self,s))
+end
+
+function Plot:add_annotation (a)
+    add(self.annotations,Anot.new(self,a))
 end
 
 make_callable(Plot,Plot.new)
 
-function Plot:calculate_bounds_if_needed ()
+function Plot:calculate_bounds_if_needed (force)
     local xaxis, yaxis = self.xaxis, self.yaxis
     -- have to update Axis bounds if they haven't been set...
-    if not xaxis:has_bounds() or not yaxis:has_bounds() then
+    -- calculate union of all series bounds
+    if force or not xaxis:has_bounds() or not yaxis:has_bounds() then
         local huge = math.huge
         local bounds = {left=huge,right=-huge,bottom=huge,top=-huge}
-        for _,s in ipairs(self.series) do
+        for s in self.series:iter() do
             union(bounds,s:bounds())
         end
-        if not xaxis:has_bounds() then
-            xaxis:set_bounds(bounds.left,bounds.right)
+        if (force and not xaxis.fixed_bounds) or not xaxis:has_bounds() then
+            xaxis:set_bounds(bounds.left,bounds.right,true)
         end
-        if not yaxis:has_bounds() then
-            yaxis:set_bounds(bounds.bottom,bounds.top)
+        if (force and not yaxis.fixed_bounds) or not yaxis:has_bounds() then
+            yaxis:set_bounds(bounds.bottom,bounds.top,true)
         end
     end
 end
 
-function Plot.init (plot)
-    local padding,xaxis,yaxis = plot.padding,plot.xaxis,plot.yaxis
+function Plot:update_and_paint (noforce)
+    self.force = not noforce
+    self:update()
+    if self.View then self.View:invalidate() end
+end
 
-    plot:calculate_bounds_if_needed()
+function Plot:set_xbounds (x1,x2)
+    self.xaxis:set_bounds(x1,x2)
+    self:update_and_paint(true)
+end
+
+function Plot:set_ybounds (y1,y2)
+    self.yaxis:set_bounds(y1,y2)
+    self:update_and_paint(true)
+end
+
+function Plot:update (width,height,fixed_width,fixed_height)
+    if width then
+        if fixed_width and width > 0 then
+            self.width = width
+        else
+            height = 400
+            self.width = height
+        end
+    elseif not self.init then
+        -- we aren't ready for business yet
+        return
+    end
+
+    local xaxis,yaxis = self.xaxis,self.yaxis
+
+    self:calculate_bounds_if_needed(self.force)
+    self.force = false
 
     xaxis:init()
     yaxis:init()
 
-    -- we now know the extents of the axes and can size our plot area
-    plot.boxwidth = plot.width - padding[1] - padding[3] - yaxis.thick
-    plot.boxheight = plot.aspect_ratio*plot.boxwidth
+    if not self.init then
+        local P = self.padding
+        local L,T,R,B = P[1],P[2],P[3],P[4]
+        local AR,BW,BH = self.aspect_ratio
+        local X,Y = xaxis.thick,yaxis.thick
 
-    plot.margin = {
-        left = padding[1] + yaxis.thick,
-        top = padding[2],
-        right = padding[3],
-        bottom = padding[4] + yaxis.thick
-    }
+        -- margins around boxes
+        local M = 7
+        self.outer_margin = {left=M,top=M,right=M,bottom=M} --outer
+        -- padding around plot
+        self.margin = {
+            left = L + Y,
+            top = T,
+            right = R,
+            bottom = B + X
+        }
 
-    plot.total_height = plot.boxheight + xaxis.thick + 2*padding[2]
+        -- we now know the extents of the axes and can size our plot area
+        if fixed_width and width > 0 then
+            BW = width - L - R - Y
+            BH = AR*BW
+            self.width = width
+            self.height = BH + X + T + B
+        else
+            BH = height - T - B - X
+            BW = BH/AR
+            self.width = BH + Y + L + R
+            self.height = height
+        end
+        self.boxheight = BH
+        self.boxwidth = BW
 
-    -- we have the exact plot area dimensions and can now scale data properly
+        self.init = true
+    end
+
+    -- we have the exact self area dimensions and can now scale data properly
     xaxis:setup_scale()
     yaxis:setup_scale()
 
-    local M = 7
-    plot.outer_margin = {left=M,top=M,right=M,bottom=M} --outer
-
-    plot.initialized = true
+    self.annotations:update()
 
 end
 
@@ -182,15 +279,30 @@ function Plot:next_colour ()
     return self.colours [#self.series % #self.colours + 1]
 end
 
-function Plot.resized(plot,w,h)
-    plot.width = w
-    plot.height = h
+function Plot:get_series (idx)
+    return self.series[idx]  -- array index _or_ tag
+end
+
+function Plot:resized(w,h)
+    -- do we even use this anymore?
+    self.width = w
+    self.height = h
+end
+
+-- get all series with labels, plus the largest label.
+function Plot:fetch_labelled_series ()
+    local series = array()
+    local wlabel = ''
+    for s in self.series:iter '_.label~=nil' do
+        series:append(s)
+        if #s.label > #wlabel then
+            wlabel = s.label
+        end
+    end
+    return series, wlabel
 end
 
 function Plot.draw(plot,c)
-    if not plot.initialized then
-        plot:init()
-    end
     c:drawPaint(plot.background)
 
     c:save()
@@ -201,12 +313,8 @@ function Plot.draw(plot,c)
     end
     c:drawRect(bounds,plot.axis_paint)
     c:clipRect(bounds)
-    for _,s in ipairs(plot.series) do
-        s:draw(c)
-    end
-    for _,a in ipairs(plot.annotations) do
-        a:draw(c)
-    end
+    plot.series:draw(c)
+    plot.annotations:draw(c)
     c:restore()
     plot.xaxis:draw(c)
     plot.yaxis:draw(c)
@@ -216,30 +324,37 @@ function Plot.draw(plot,c)
     end
 end
 
-function Plot:onMeasure (wspec,hspec)
-    local MeasureSpec = V.View_MeasureSpec
-    local pwidth = MeasureSpec:getSize(wspec)
-    local pheight = MeasureSpec:getSize(hspec)
-    local hmode = MeasureSpec:getMode(hspec)
-    local wmode = MeasureSpec:getMode(wspec)
+function Plot:measure (pwidth,pheight,width_fixed, height_fixed)
     if not self.initialized then
-        if not self.width then
-            self.width = pwidth
-        end
-        self:init()
+        --print(pwidth,pheight,width_fixed,height_fixed)
+        self:update(pwidth,pheight,width_fixed,height_fixed)
+        self.initialized = true
     end
-    self.view:measuredDimension(pwidth,self.total_height)
+    return self.width,self.height
 end
 
-function Plot.view (plot,me)
-    plot.me = me
-    me.plot = plot
-    plot.view = me:luaView {
-        onDraw = function(c) plot:draw(c) end,
-        onSizeChanged = function(w,h) plot:resized(w,h) end,
-        onMeasure = function(wspec,hspec) plot:onMeasure(wspec,hspec); return true end
+function Plot:view (me)
+    local MeasureSpec = V.View_MeasureSpec
+    self.me = me
+    --me.plot = self
+    local tbl =  {
+        onDraw = function(c) self:draw(c) end,
+        onSizeChanged = function(w,h) self:resized(w,h) end,
+        onMeasure = function(wspec,hspec)
+            local pwidth = MeasureSpec:getSize(wspec)
+            local pheight = MeasureSpec:getSize(hspec)
+            local width_fixed = MeasureSpec:getMode(wspec) --== MeasureSpec.EXACTLY
+            local height_fixed = MeasureSpec:getMode(hspec) --== MeasureSpec.EXACTLY
+            local p,w = self:measure(pwidth,pheight,width_fixed,height_fixed)
+            self.View:measuredDimension(p,w)
+            return true
+        end
     }
-    return plot.view
+    if self.interactive then
+        tbl.onTouchEvent = require 'android.plot.interactive'(self)
+    end
+    self.View = me:luaView(tbl)
+    return self.View
 end
 
 function Plot:corner (cnr,width,height,M)
@@ -260,42 +375,72 @@ function Plot:corner (cnr,width,height,M)
     return x,y
 end
 
------- Axis class ------------
+-- Axis class ------------
 
 function Axis.new (plot,self)
     make_object(self,Axis)
     self.plot = plot
+    if self.invisible then
+        self.thick = 0
+        return self
+    end
     self.grid = self.grid or plot.grid
+
+    if self.min and self.max then
+        self.fixed_bounds = true
+    end
 
     self.label_size = android.me:parse_size(self.label_size or '12sp')
     self.label_paint = text_paint(self.label_size,plot.color)
 
     if self.grid then
-        self.grid = stroke_paint('#50000000')
+        self.grid = stroke_paint(set_alpha(plot.color,30),1)
     end
+
+    self.explicit_ticks = type(self.ticks)=='table' and #self.ticks > 0
+
     return self
 end
 
-function Axis:has_explicit_ticks ()
-    return type(self.ticks)=='table' and #self.ticks > 0
-end
-
 function Axis:has_bounds ()
-    return self.min and self.max or self:has_explicit_ticks()
+    return self.min and self.max or self.explicit_ticks
 end
 
-function Axis:set_bounds (min,max)
+function Axis:set_bounds (min,max,init)
+    if init then
+        self.old_min, self.old_max = min, max
+        self.initial_ticks = true
+    elseif not max then
+        min, max = self.old_min, self.old_max
+    end
+    self.unchanged = false
     self.min = min
     self.max = max
 end
 
+function Axis:zoomed ()
+    return self.min > self.old_min or self.max < self.old_max
+end
+
+local DAMN_SMALL = 10e-16
+
+local function eq (x,y)
+    return math.abs(x-y) < DAMN_SMALL
+end
+
 function Axis:init()
+    if self.invisible or self.unchanged then return end
+    self.unchanged = true
     local plot = self.plot
 
-    if not self:has_explicit_ticks() then
+    if not self.explicit_ticks then
         local W = plot.width
         if not self.horz then W = plot.aspect_ratio*W end
-        self.ticks = require 'android.plot.intervals' (self,W)
+        if self.type == 'date' then
+            self.ticks = require 'android.plot.time_intervals' (self,W)
+        else
+            self.ticks = require 'android.plot.intervals' (self,W)
+        end
     end
     local ticks = self.ticks
 
@@ -328,30 +473,35 @@ function Axis:init()
     -- adjust our bounds to match ticks, and give some vertical space for series
     local start_tick, end_tick = ticks[1][1], ticks[#ticks][1]
 
+    self.min = self.min or start_tick
+    self.max = self.max or end_tick
+
     if not self.horz then
-        if self.max ~= 0 and self.max == end_tick then
-            local D = (self.max - self.min)/20
+        local D = (self.max - self.min)/20
+        if not eq(self.max,0) and eq(self.max,end_tick) then
             self.max = self.max + D
         end
-        if self.min ~= 0 and self.min == start_tick then
-            local D = (self.max - self.min)/20
+        if not eq(self.min,0) and eq(self.min,start_tick) then
             self.min = self.min - D
         end
     end
 
-    if not self.min or self.min > start_tick then
-        self.min = start_tick
-    end
-    if not self.max or self.max < end_tick then
-        self.max = end_tick
+    if self.initial_ticks then
+        if self.min > start_tick then
+            self.min = start_tick
+        end
+        if self.max < end_tick then
+            self.max = end_tick
+        end
+        self.initial_ticks = false
     end
 
-    --- finding our 'thickness', which is the extent in the perp. direction
+    -- finding our 'thickness', which is the extent in the perp. direction
     -- (we'll use this to adjust our plotting area size and position)
     self.label_width = self:get_label_extent(wlabel)
     if not self.horz then
         -- cool, have to find width of y-Axis label on the left...
-        self.thick = self.label_width + 7
+        self.thick = math.floor(1.1*self.label_width)
     else
         self.thick = self.label_size
     end
@@ -383,10 +533,19 @@ function Axis:setup_scale ()
     self.scale = function(v)
         return m*v + c
     end
+
+    local minv = 1/m
+    local cinv = - c/m
+    local M = self.horz and plot.margin.left or plot.margin.top
+
+    self.unscale = function(p)
+        return minv*(p-M) + cinv
+    end
+    self.pix2plot = self.horz and minv or -minv
 end
 
 function Axis:draw (c)
-    if not self.ticks then return end -- i.e, we don't want to draw ticks or gridlines etc
+    if self.invisible then return end -- i.e, we don't want to draw ticks or gridlines etc
 
     local tpaint,apaint,size,scale = self.label_paint,self.plot.axis_paint,self.label_size,self.scale
     local boxheight = self.plot.boxheight
@@ -397,14 +556,17 @@ function Axis:draw (c)
         c:save()
         c:translate(margin.left,margin.top + boxheight)
         for _,tick in ipairs(self.ticks) do
-            local x = scale(tick[1])
-            --c:drawLine(x,0,x,twidth,apaint)
-            if tpaint then
-                lw = self:get_label_extent(tick[2],tpaint)
-                c:drawText(tick[2],x-lw/2,size,tpaint)
-            end
-            if self.grid then
-                c:drawLine(x,0,x,-boxheight,self.grid)
+            local x = tick[1]
+            if x > self.min and x < self.max then
+                x = scale(x)
+                --c:drawLine(x,0,x,twidth,apaint)
+                if tpaint then
+                    lw = self:get_label_extent(tick[2],tpaint)
+                    c:drawText(tick[2],x-lw/2,size,tpaint)
+                end
+                if self.grid then
+                    c:drawLine(x,0,x,-boxheight,self.grid)
+                end
             end
         end
         c:restore()
@@ -413,18 +575,23 @@ function Axis:draw (c)
         local boxwidth = self.plot.boxwidth
         c:translate(margin.left,margin.top)
         for _,tick in ipairs(self.ticks) do
-            local y = scale(tick[1])
-            --c:drawLine(-twidth,y,0,y,apaint)
-            if tpaint then
-                c:drawText(tick[2],-lw,y,tpaint) -- y + sz !
-            end
-            if self.grid then
-                c:drawLine(0,y,boxwidth,y,self.grid)
+            local y = tick[1]
+            if y > self.min and y < self.max then
+                y = scale(y)
+                --c:drawLine(-twidth,y,0,y,apaint)
+                if tpaint then
+                    c:drawText(tick[2],-lw,y,tpaint) -- y + sz !
+                end
+                if self.grid then
+                    c:drawLine(0,y,boxwidth,y,self.grid)
+                end
             end
         end
         c:restore()
     end
 end
+
+Plot.Axis = Axis
 
 ------- Series class --------
 
@@ -436,43 +603,129 @@ local function unzip (data)
 end
 
 function Series.new (plot,t)
-    t.plot = plot
-    t.xaxis = plot.xaxis
-    t.yaxis = plot.yaxis
-    t.path = G.Path()
+    local self = make_object(t,Series)
+    self:set_styles(plot,t)
+    if not self:set_data(t,false) then
+       error("must provide both xdata and ydata for series",2)
+    end
+    self.init = true
+    return self
+end
+
+function Series:set_styles (plot,t)
+    self.plot = plot
+    self.xaxis = plot.xaxis
+    self.yaxis = plot.yaxis
+    self.path = G.Path()
     local clr = t.color or plot:next_colour()
     if not t.points and not t.lines then
         t.lines = true
     end
-    if t.lines then
-        t.linestyle = stroke_paint(clr,t.width)
-        --local dash = G.DashPathEffect(L.Float{20,5},1)
+    if t.lines and t.color ~= 'none' then
+        self.linestyle = stroke_paint(clr,t.width)
+        if type(t.lines) == 'string' and t.lines ~= 'steps' then
+            local w = plot.sample_width
+            local pat
+            if t.lines == 'dash' then
+                pat = {w/4,w/4}
+            elseif t.lines == 'dot' then
+                pat = {w/8,w/8}
+            elseif t.lines == 'dashdot' then
+                pat = {w/4,w/8,w/8,w/8}
+            end
+            pat = G.DashPathEffect(L.Float(pat),#pat/2)
+            self.linestyle:setPathEffect(pat)
+        end
+        if t.shadow then
+            local c = set_alpha(clr,50)
+            self.shadowstyle = stroke_paint(c,t.width)
+        end
     end
-    if t.points then
-        t.pointstyle = stroke_paint(clr,t.pointwidth or t.width)
+    if t.fill then
+        local cfill = t.fill
+        if t.fill == true then
+            cfill = set_alpha(clr,30)
+        end
+        t.fillstyle = fill_paint(cfill)
+    elseif t.points then
+        self.pointstyle = stroke_paint(clr,t.pointwidth or 10) -- Magic Number!
         local cap = t.points == 'circle' and G.Paint_Cap.ROUND or G.Paint_Cap.SQUARE
-        t.pointstyle:setStrokeCap(cap)
+        self.pointstyle:setStrokeCap(cap)
     end
-    if t.data then -- Flot-style data
-        t.xdata, t.ydata = unzip(t.data)
-    elseif not t.xdata and not t.ydata then
-        error("must provide both xdata and ydata for series")
-    else
-        t.xdata, t.ydata = array(t.xdata),array(t.ydata)
-    end
-    if t.points then
-        t.xpoints, t.ypoints = t.xdata, t.ydata
-    end
-    return make_object(t,Series)
+    self.color = PC(clr)
 end
 
+function Series:set_data (t,do_update)
+    do_update = do_update==nil or do_update
+    local set,xunits = true,self.xunits
+    local xx, yy
+    if t.data then -- Flot-style data
+        xx, yy = unzip(t.data)
+    elseif not t.xdata and not t.ydata then
+       set = false
+    else
+        xx, yy = array(t.xdata),array(t.ydata)
+    end
+    if self.lines == 'steps' then
+        local xs,ys,k = array(),array(),1
+        if #xx == #yy then
+            local n = #xx
+            xx[n+1] = xx[n] + (xx[n]-xx[n-1])
+        end
+        for i = 1,#yy do
+            xs[k] = xx[i]; ys[k] = yy[i]
+            xs[k+1] = xx[i+1]; ys[k+1] = yy[i]
+            k = k + 2
+        end
+        xx, yy = xs, ys
+    end
+    if self.points then
+        self.xpoints, self.ypoints = xx, yy
+    elseif self.fill then
+        local xf, yf = array(xx),array(yy)
+        local min = yf:minmax()
+        xf:append(xf[#xf])
+        yf:append(min)
+        xf:append(xf[1])
+        yf:append(min)
+        self.xfill, self.yfill = xf, yf
+    end
+    if xunits then
+        local fact
+        if xunits == 'msec' then
+            fact = 1/1000.0
+        end
+        xx = xx:map('*',fact)
+    end
+    local scale_to = self.scale_to_y or self.scale_to_x
+    if scale_to then
+        local other = self.plot:get_series(scale_to)
+        local bounds = other:bounds()
+        if self.scale_to_y then
+            yy:scale_to(bounds.bottom,bounds.top)
+        else
+            yy:scale_to(bounds.left,bounds.right)
+        end
+    end
+    self.xdata, self.ydata = xx, yy
+    if do_update then
+        self.cached_bounds = nil
+        self.plot:update_and_paint()
+    end
+    return set
+end
+
+function Series:update ()
+
+end
 
 function Series:bounds ()
     if self.cached_bounds then
         return self.cached_bounds
     end
-    --self.xdata[1],self.xdata[#self.xdata] -- a simplification for now
+    if not self.xdata then error('xdata was nil!') end
     local xmin,xmax = array.minmax(self.xdata)
+    if not self.ydata then error('ydata was nil!') end
     local ymin,ymax = array.minmax(self.ydata)
     self.cached_bounds = {left=xmin,top=ymax,right=xmax,bottom=ymin}
     return self.cached_bounds
@@ -482,26 +735,22 @@ local function draw_poly (self,c,xdata,ydata,pathstyle)
     local scalex,scaley,path = self.xaxis.scale, self.yaxis.scale, self.path
     path:reset()
     path:moveTo(scalex(xdata[1]),scaley(ydata[1]))
+    -- cache the lineTo method!
+    local lineTo = luajava.method(path,'lineTo',0.0,0.0)
     for i = 2,#xdata do
-        path:lineTo(scalex(xdata[i]),scaley(ydata[i]))
+        lineTo(path,scalex(xdata[i]),scaley(ydata[i]))
     end
     c:drawPath(path,pathstyle)
 end
 
 function Series:draw(c)
-
---~     if self.is_anot then
---~         print('lines',self.xdata,self.ydata,self.linestyle)
---~         print('points',self.xpoints,self.ypoints,self.pointstyle)
---~     end
-
     if self.linestyle then
         draw_poly (self,c,self.xdata,self.ydata,self.linestyle)
     end
     if self.fillstyle then
+        print('filling',self.tag)
         draw_poly (self,c,self.xfill,self.yfill,self.fillstyle)
     end
-
     if self.pointstyle then
         local scalex,scaley = self.xaxis.scale, self.yaxis.scale
         local xdata,ydata = self.xpoints,self.ypoints
@@ -517,119 +766,116 @@ function Series:draw_sample(c,x,y,sw)
     else
         c:drawPoint(x,y,self.pointstyle)
     end
+    return self.label
 end
 
 function Series:get_x_intersection (x)
-    local idx = self.xdata:find(x)
-    if not idx then error("no intersection with this series possible") end
+    local idx = self.xdata:find_linear(x)
+    if not idx then return nil,"no intersection with this series possible" end
     local y = self.ydata:at(idx)
     return y,idx
 end
 
 function Series:get_data_range (idx1,idx2)
-    local data = array()
-    local xx,yy = self.xdata,self.ydata
-    local y1,y2,x,exact
-
-    -- the end indices may refer to interpolated points,
-    -- in which case we need to add them to complete the path
-    y1,exact = yy:at(idx1)
-    if not exact then
-        data:append {idx1.x,y1}
-        idx1 = idx1[1]+1
-    end
-    y2,exact = yy:at(idx2)
-    if not exact then
-        x = idx2.x
-        idx2 = idx2[1]+1
-    end
-    for i = idx1,idx2 do
-        data:append {xx[i],yy[i]}
-    end
-    if x then
-        data:append {x, y2}
-    end
-    return data
-end
-
--- the bounds are usually not known at object creation time,
--- so we use these chaps as placeholders and fix them up later!
-local UPPER,LOWER = math.huge, -math.huge
-
-local function fixup (t,axis)
-    for i, v in ipairs(t) do
-        if v == UPPER then t[i] = axis.max
-        elseif v == LOWER then t[i] = axis.min
-        end
-    end
+    local xx = self.xdata:sub(idx1,idx2)
+    local yy = self.ydata:sub(idx1,idx2)
+    return xx:map2('{_1,_2}',yy)
 end
 
 function Anot.new(plot,t)
-    local lines = array()
+    t.width = 1
+    if t.points then t.pointwidth = 7  end  --Q: what is optimal default here?
 
-    if t.series then
-        t.series = plot.series[t.series]  -- array index _or_ tag
+    t.series = t.series and plot:get_series(t.series)
+
+    -- can override default colour, which is 60% opaque series colour
+    local c = t.series and t.series.color or plot.theme.color
+    t.color = t.color or set_alpha(c,60)
+
+    if t.bounds then
+--~         t.x1,t.y1,t.x2,t.y2 = t[1],t[2],t[3],t[4]
     end
 
-    local fill = t.x1 ~= nil
-    local top
-
-    if fill then
-        fill = fill_paint(t.color or '#30000000')
-        if not t.series then
-            lines:append {t.x1,LOWER}
-            lines:append {t.x1,UPPER}
-            lines:append {t.x2,UPPER}
-            lines:append {t.x2,LOWER}
-        else
-            local top1,i1 = t.series:get_x_intersection(t.x1)
-            local top2,i2 = t.series:get_x_intersection(t.x2)
-            lines:append {t.x1,LOWER}
-            lines:extend(t.series:get_data_range(i1,i2))
-            lines:append {t.x2,LOWER}
-        end
-    else -- line annotation
-        lines:append {t.x,LOWER}
-        if not t.series then
-            lines:append {t.x,UPPER}
-        else
-            top = t.series:get_x_intersection(t.x)
-            lines:append {t.x,top}
-            lines:append {LOWER,top}
-        end
-
-        t.width = 1
-        if t.points then t.pointwidth = 7  end
+    -- simularly default fill colour is 40% series colour
+    -- we're filling if asked explicitly with a fill colour, or if x1
+    -- or y1 is defined
+    if t.fill or t.x1 ~= nil or t.y1 ~= nil then --) and not (t.x or t.y) then
+        t.fillstyle = fill_paint(t.fill or set_alpha(c,30))
+    else
         t.lines = true
     end
-    t.data = lines
-    t.color = '#40000000'
 
-    local self = Series.new(plot,t)
+    -- lean on our 'friend' Series to set up the paints and so forth!
+    local self = make_object(t,Anot)
+    Series.set_styles(self,plot,t)
 
-    -- maybe add a point to the intersection?
-    if t.points and t.series then
-        self.xpoints = array{t.x}
-        self.ypoints = array{top}
-    end
-    if fill then
-        self.fillstyle = fill
-        self.linestyle = nil
-        self.xfill, self.yfill = self.xdata, self.ydata
-    end
     self.is_anot = true
-
-    make_object(self,Anot)
     return self
 end
 
+local function lclamp (x,xmin) return math.max(x or xmin, xmin) end
+local function rclamp (x,xmax) return math.min(x or xmax, xmax) end
+local function clamp (x1,x2,xmin,xmax) return lclamp(x1,xmin),rclamp(x2,xmax) end
+
+function Anot:update()
+    local lines = array()
+    local A = array
+    local top
+    local xmin,xmax,ymin,ymax = self.xaxis.min,self.xaxis.max,self.yaxis.min,self.yaxis.max
+    local series = self.series
+
+    --print('y',self.y,self.y1,self.fillstyle,self.linestyle)
+    if self.fillstyle then
+        if not series then -- a filled box {x1,y1,x2,y2}
+            local x1,x2 = clamp(self.x1,self.x2,xmin,xmax)
+            local y1,y2 = clamp(self.y1,self.y2,ymin,ymax)
+            lines:extend {{x1,y1},{x2,y1},{x2,y2},{x1,y2},{x1,y1}}
+        else
+            -- must clamp x1,x2 to series bounds!
+            local bounds = series:bounds()
+            local x1,x2 = clamp(self.x1,self.x2,bounds.left,bounds.right)
+            local top1,i1 = series:get_x_intersection(x1)
+            local top2,i2 = series:get_x_intersection(x2)
+            -- closed polygon including chunk of series that we can fill!
+            lines:append {x1,ymin}
+            lines:extend (series:get_data_range(i1,i2))
+            lines:append {x2,ymin}
+        end
+    else -- line annotation
+        local x,y = self.x,self.y
+        lines:append {x or xmin,y or ymin}
+        if not series then -- just a vertical or horizontal line
+            lines:append {x or xmax,y or ymax}
+        else -- try to intersect!
+            top = series:get_x_intersection(x)
+            if top then
+                lines:extend {{x,top},{xmin,top}}
+            else
+                lines:append {x,ymax}
+            end
+        end
+    end
+
+    Series.set_data(self,{ data = lines },false)
+
+   -- maybe add a point to the intersection?
+    if top then
+        self.xpoints = array{self.x}
+        self.ypoints = array{top}
+    end
+    if self.fillstyle then
+        self.linestyle = nil
+        self.xfill, self.yfill = self.xdata, self.ydata
+        print(self.xfill)
+        print(self.yfill)
+    end
+end
+
 function Anot:draw(c)
-    fixup(self.ydata,self.yaxis)
-    fixup(self.xdata,self.xaxis)
     Series.draw(self,c)
 end
 
------ Legend class ----------
+-- Legend class ----------
 function Legend.new (plot,t)
     if type(t) == 'string' then
         t = {corner = t}
@@ -642,11 +888,11 @@ function Legend.new (plot,t)
 
     local P = t.padding or plot.pad/2
     self.padding = {P,P,P,P} --inner
-    self.sample_width = t.sample_width or 2*plot.pad
+    self.sample_width = t.sample_width or plot.sample_width
 
     self.stroke = plot.axis_paint
     self.label_paint = plot.xaxis.label_paint
-    self.background = fill_paint(t.fill or WHITE)
+    self.background = fill_paint(t.fill or plot.theme.background)
     return self
 end
 
@@ -656,15 +902,9 @@ function Legend:draw (c)
     local plot = self.plot
     local P = self.padding
 
-    -- get all series with labels, plus the largest label
-    local series = {}
-    local wlabel = ''
-    for _,s in ipairs(plot.series) do if s.label then
-        append(series,s)
-        if #s.label > #wlabel then
-            wlabel = s.label
-        end
-    end end
+    local series,wlabel = plot:fetch_labelled_series()
+
+    if #series == 0 then return end -- no series to show!
 
     -- can now calculate our bounds and ask for our position
     local sw = self.sample_width
@@ -701,9 +941,9 @@ function Legend:draw (c)
     local yspacing = P[2]/2
     if self.across then y = y + h/2 end
     for _,s in ipairs(series) do
-        s:draw_sample(c,x,y-offs,sw)
+        local label = s:draw_sample(c,x,y-offs,sw)
         x = x+sw+P[1]
-        c:drawText(s.label,x,y,self.label_paint)
+        c:drawText(label,x,y,self.label_paint)
         if not self.across then
             y = y + h + yspacing
             x = xs + P[1]

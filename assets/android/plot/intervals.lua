@@ -43,23 +43,23 @@ return function (axis,width)
         size = axis.minTickSize
     end
 
-    axis.tickDecimals = math.max(0, maxDec and maxDec or dec)
-    axis.tickSize = axis.tickSize or size;
+    local tickDecimals = math.max(0, maxDec and maxDec or dec)
+    local tickSize = axis.tickSize or size;
 
    -- print('ticks',axis.tickDecimals,axis.tickSize)
 
-    if axis.tickDecimals == 0 then
+    if tickDecimals == 0 then
         axis.format = '%d'
     else
-        axis.format = '%.'..axis.tickDecimals..'f'
+        axis.format = '%.'..tickDecimals..'f'
     end
 
     local ticks = {}
-    local start = floorInBase(axis.min,axis.tickSize)
+    local start = floorInBase(axis.min,tickSize)
     local i = 0
     local v = -math.huge
     while v < axis.max do
-        v = start + i * axis.tickSize
+        v = start + i * tickSize
         i = i + 1
         ticks[i] = v
     end

@@ -3,7 +3,7 @@ local launch = require 'android'.new()
 
 local groups = {
     {group='GUI','list','expanded','pretty'},
-    {group='Graphics','draw','plot'},
+    {group='Graphics','draw','plot','esd'},
     {group='Forms','form','password'},
 }
 
@@ -27,7 +27,10 @@ function launch.create(me)
         end;
 
         onChildClick = function(child)
-            me:luaActivity('example.'..child)
+            if child ~= 'esd' then
+                child = 'example.'..child
+            end
+            me:luaActivity(child)
             return true
         end;
 

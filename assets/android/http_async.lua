@@ -1,4 +1,4 @@
-require 'import'
+require 'android.import'
 local utils = require 'android.utils'
 
 return function (thread,args)

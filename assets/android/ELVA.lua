@@ -1,7 +1,6 @@
---- ELVA.lua
+-- ELVA.lua
 -- Expandable List View Adapter using a Lua table.
-require 'import'
-
+require 'android.import'
 
 return function(groups,overrides)
     local ELA = {}

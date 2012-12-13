@@ -1,4 +1,7 @@
-require 'import'
+-----------------
+-- AndroLua Activity Framework
+-- @module android
+require 'android.import'
 
 -- public for now...
 android = {}
@@ -12,10 +15,16 @@ local app = LPK 'android.app'
 local V = LPK 'android.view'
 local A = LPK 'android'
 local G = LPK 'android.graphics'
-local P = LPK 'android.provider'
 
 local append = table.insert
 
+--- Utilities
+-- @section utils
+
+--- split a string using a delimiter.
+-- @string s
+-- @string delim
+-- @treturn {string}
 function android.split (s,delim)
     local res,pat = {},'[^'..delim..']+'
     for p in s:gmatch(pat) do
@@ -43,6 +52,10 @@ local function get_app_package (me)
     return app_package
 end
 
+--- return a Drawable from an name.
+-- @param me
+-- @string icon_name
+-- @treturn G.Drawable
 function android.drawable (me,icon_name)
     local a = me.a
     -- icon is [android.]NAME
@@ -58,6 +71,133 @@ function android.drawable (me,icon_name)
     if not did then error(name..' is not a drawable') end
     return a:getResources():getDrawable(did)
 end
+
+--- wrap a callback safely.
+-- Error messages will be output using print() or logger, depending.
+-- @func callback the function to be called in a protected context.
+function android.safe (callback)
+    return function(...)
+        local ok,res = pcall(callback,...)
+        if not ok then
+           LS:log(res)
+        elseif res ~= nil then
+            return res
+        end
+    end
+end
+
+--- parse a colour value.
+-- @param c either a number (passed through) or a string like #RRGGBB,
+-- #AARRGGBB or colour names like 'red','blue','black','white' etc
+function android.parse_color(c)
+    if type(c) == 'string' then
+        local ok
+        ok,c = pcall(function() return G.Color:parseColor(c) end)
+        if not ok then
+            LS:log("converting colour "..tostring(c).." failed")
+            return G.Color.WHITE
+        end
+    end
+    return c
+end
+
+local TypedValue = bind 'android.util.TypedValue'
+
+--- parse a size specification.
+-- @param me
+-- @param size a number is interpreted as pixels, otherwise a string like '20sp'
+-- or '30dp'. (See android.util.TypedValue.COMPLEX_UNIT_*)
+-- @return size in pixels
+function android.parse_size(me,size)
+    if type(size) == 'string' then
+        local sz,unit = size:match '(%d+)(.+)'
+        sz = tonumber(sz)
+        if unit == 'dp' then unit = 'dip' end -- common alias
+        unit = TypedValue['COMPLEX_UNIT_'..unit:upper()]
+        size = TypedValue:applyDimension(unit,sz,me.metrics)
+    end
+    return size
+end
+
+--- suppress initial soft keyboard with edit view.
+-- @param me
+function android.no_initial_keyboard(me)
+    local WM_LP = bind 'android.view.WindowManager_LayoutParams'
+    me.a:getWindow():setSoftInputMode(WM_LP.SOFT_INPUT_STATE_HIDDEN)
+end
+
+--- make the soft keyboard go bye-bye.
+-- @param v an edit view
+function android.dismiss_keyboard (v)
+    local ime = v:getContext():getSystemService(C.Context.INPUT_METHOD_SERVICE)
+    ime:hideSoftInputFromWindow(v:getWindowToken(),0)
+end
+
+
+--- return a lazy table for looking up controls in a layout.
+-- @param me
+function android.wrap_widgets (me)
+    local rclass = get_app_package(me).R_id
+    return setmetatable({},{
+        __index = function(t,k)
+            local c = me.a:findViewById(rclass[k])
+            rawset(t,k,c)
+            return c
+        end
+    })
+end
+
+--- set the content view of this activity using the layout name.
+-- @param me
+-- @param name a layout name in current project
+function android.set_content_view (me,name)
+    me.a:setContentView(get_app_package(me).R_layout[name])
+end
+
+--- make a `V.View.OnClickListener`.
+-- @param me
+-- @func callback a Lua function
+function android.on_click_handler (me,callback)
+    return (proxy('android.view.View_OnClickListener',{
+        onClick = android.safe(callback)
+    }))
+end
+
+--- attach a click handler.
+-- @param me
+-- @param b a widget
+-- @func callback a Lua function
+function android.on_click (me,b,callback)
+    b:setOnClickListener(me:on_click_handler(callback))
+end
+
+--- make a Vew.OnLongClickListener.
+-- @param me
+-- @func callback a Lua function
+function android.on_long_click_handler (me,callback)
+    return (proxy('android.view.View_OnLongClickListener',{
+        onClick = android.safe(callback)
+    }))
+end
+
+--- attach a long click handler.
+-- @param me
+-- @tparam widget b
+-- @func callback a Lua function
+function android.on_long_click (me,b,callback)
+    b:setOnLongClickListener(me:on_long_click_handler(callback))
+end
+
+--- make an AdapterView.OnItemClickListener.
+-- @param me
+-- @tparam ListView lv
+-- @func callback a Lua function
+function android.on_item_click (me,lv,callback)
+    lv:setOnItemClickListener(proxy('android.widget.AdapterView_OnItemClickListener',{
+        onItemClick = android.safe(callback)
+    }))
+end
+
 
 local option_callbacks,entry_table = {},{}
 
@@ -116,6 +256,37 @@ local function create_menu (me,is_context,t)
 
 end
 
+--- Properties
+-- @section properties
+--- view properties
+-- @tfield ViewProperties theme provides default properties, does not override
+-- @color background  colour of view's background
+-- @int paddingLeft  inner padding
+-- @int paddingRight
+-- @int paddingBottom
+-- @int paddingTop
+-- @table android.ViewProperties
+
+--- Text Properties
+-- @color textColor colour of text
+-- @int size
+-- @int maxLines
+-- @int minLines
+-- @int lines
+-- @string textStyle
+-- @string typeface
+-- @string gravity
+-- @string inputType
+-- @bool scrollable
+-- @drawable drawableLeft
+-- @drawable drawableRight
+-- @drawable drawableTop
+-- @drawable drawableBottom
+-- @table android.TextProperties
+
+--- Menus and Alerts
+-- @section menus
+
 --- create an options menu.
 -- @param me
 -- @param t a table containing 2n items; each row is label,callback.
@@ -133,6 +304,184 @@ end
 -- defined!
 function android.context_menu (me,t)
     create_menu(me,true,t)
+end
+
+--- show an alert.
+-- @param me
+-- @string title caption of dialog 'label[|drawable]' like with menus
+-- above, where 'drawable' is '[android.]name'
+-- @string kind either 'ok' or 'yesno'
+-- @param message text within dialog, or a custom view
+-- @func callback optional Lua function to be called
+function android.alert(me,title,kind,message,callback)
+    local Builder = bind 'android.app.AlertDialog_Builder'
+    local db = Builder(me.a)
+    local parts = split(title,'|')
+    db:setTitle(parts[1])
+    if parts[2] then
+        db:setIcon(me:drawable(parts[2]))
+    end
+    if type(message) == 'string' then
+        db:setMessage(message)
+    else
+        db:setView(message)
+    end
+    callback = callback or function() end -- for now
+    local listener = proxy('android.content.DialogInterface_OnClickListener', {
+        onClick = android.safe(callback)
+    })
+    if kind == 'ok' then
+        db:setNeutralButton("OK",listener)
+    elseif kind == 'yesno' then
+        db:setPositiveButton("Yes",listener)
+        db:setNegativeButton("No",listener)
+    end
+    dlg = db:create()
+    dlg:setOwnerActivity(me.a)
+    dlg:show()
+end
+
+--- show a toast
+-- @param me
+-- @string text to show
+-- @bool long `true` if you want a long toast!
+function android.toast(me,text,long)
+    W.Toast:makeText(me.a,text,long and W.Toast.LENGTH_LONG or W.Toast.LENGTH_SHORT):show()
+end
+
+--- Creating Views
+-- @section views
+
+function android.give_id (me,w)
+    if w:getId() == -1 then
+        if not me.next_id then
+            me.next_id = 1
+        end
+        w:setId(me.next_id)
+        me.next_id = me.next_id + 1
+    end
+    return w
+end
+
+
+--- set View properties.
+-- @see ViewProperties
+-- @param me
+-- @tparam V.View v
+-- @param args table of properties
+function android.setViewArgs (me,v,args)
+    if args.id then
+        v:setId(args.id)
+    end
+    -- @doc me.theme is an optional table of view parameters
+    -- that provides defaults; does not override existing parameters.
+    if me.theme then
+        for k,v in pairs(me.theme) do
+            if args[k]==nil then args[k] = v end
+        end
+    end
+    if args.background then
+        v:setBackgroundColor(android.parse_color(args.background))
+    end
+    if args.paddingLeft or args.paddingRight or args.paddingBottom or args.paddingTop then
+        local L,R,B,T = v:getPaddingLeft(), v:getPaddingRight(), v:getPaddingBottom(), v:getPaddingTop()
+        if args.paddingLeft then
+            L = me:parse_size(args.paddingLeft)
+        end
+        if args.paddingTop then
+            T = me:parse_size(args.paddingTop)
+        end
+        if args.paddingRight then
+            R = me:parse_size(args.paddingRight)
+        end
+        if args.paddingBottom then
+            B = me:parse_size(args.paddingBottom)
+        end
+        v:setPadding(L,T,R,B)
+    end
+    return me:give_id(v)
+end
+
+local function parse_input_type (input)
+    return require 'android.input_type' (input)
+end
+
+--- set properties specific to `TextView` and `EditText`.
+-- @see TextProperties
+-- @param me
+-- @tparam W.TextView txt
+-- @param args table of properties
+function android.setEditArgs (me,txt,args)
+    me:setViewArgs(txt,args)
+    if args.textColor then
+        txt:setTextColor(android.parse_color(args.textColor))
+    end
+    if args.size then
+        txt:setTextSize(me:parse_size(args.size))
+    end
+    if args.maxLines then
+        txt:setMaxLines(args.maxLines)
+    end
+    if args.minLines then
+        txt:setMinLines(args.minLines)
+    end
+    if args.lines then
+        txt:setLines(args.lines)
+    end
+    local Typeface,tface = G.Typeface
+    if args.typeface or args.textStyle then
+        if args.typeface then
+            tface = Typeface:create(args.typeface,Typeface.NORMAL)
+        else
+            tface = txt:getTypeface()
+        end
+        if args.textStyle then
+            local style = args.textStyle:upper()
+            tface = Typeface:create(tface,Typeface[style])
+        end
+        txt:setTypeface(tface)
+    end
+    if args.gravity then
+        local gg = split(args.gravity,'|')
+        local g = 0
+        for _,p in ipairs(gg) do
+            g = g + V.Gravity[p:upper()]
+        end
+        txt:setGravity(g)
+    end
+    if args.inputType then -- see android:inputType
+        txt:setInputType(parse_input_type(args.inputType))
+    end
+    if args.scrollable then
+        local smm = bind 'android.text.method.ScrollingMovementMethod':getInstance()
+        txt:setMovementMethod(smm)
+    end
+    local L,T,R,B = args.drawableLeft,args.drawableTop,args.drawableRight,args.drawableBottom
+    local compound = L or T or R or B
+    if compound then
+        local def = type(compound)=='number' and 0 or nil
+        txt:setCompoundDrawablesWithIntrinsicBounds(L or def,T or def,R or def,B or def)
+    end
+end
+
+
+local function handle_args (args)
+    if type(args) ~= 'table' then
+        args = {args}
+    end
+    return args[1] or '',args
+end
+
+--- create a text view style.
+-- @param me
+-- @param args as in `android.textView`
+-- @return a function that creates a text view from a string
+function android.textStyle (me,args)
+    return function(text)
+        local targs = table_copy(args)
+        targs[1] = text
+        return me:textView(targs)
+    end
 end
 
 local function tab_content (callback)
@@ -155,8 +504,8 @@ end
 --     The default is to use `tag`
 --  - `content` a View, or a function returning a View, or a Lua activity module name
 --
--- @return the tabhost
-function android.make_tabs (me,tabs)
+-- @treturn W.TabHost
+function android.tabView (me,tabs)
     local views = {}
     me:set_content_view 'tabs'
     local tabhost = me.a:findViewById(A.R_id.tabhost)
@@ -207,315 +556,12 @@ function android.make_tabs (me,tabs)
     return tabhost
 end
 
-
---- return a lazy table for looking up controls in a layout.
--- @param me
-function android.wrap_widgets (me)
-    local rclass = get_app_package(me).R_id
-    return setmetatable({},{
-        __index = function(t,k)
-            local c = me.a:findViewById(rclass[k])
-            rawset(t,k,c)
-            return c
-        end
-    })
-end
-
---- set the content view of this activity using the layout name.
--- @param me
--- @param me a layout name
-function android.set_content_view (me,name)
-    me.a:setContentView(get_app_package(me).R_layout[name])
-end
-
-
---- wrap a callback safely.
--- Error messages will be output using print() or logger, depending.
--- @param callback the function to be called in a protected context.
-function android.safe (callback)
-    return function(...)
-        local ok,res = pcall(callback,...)
-        if not ok then
-           LS:log(res)
-        elseif res ~= nil then
-            return res
-        end
-    end
-end
-
---- make a Vew.OnClickListener.
--- @param me
--- @param callback a Lua function
-function android.on_click_handler (me,callback)
-    return (proxy('android.view.View_OnClickListener',{
-        onClick = android.safe(callback)
-    }))
-end
-
---- attach a click handler.
--- @param me
--- @param b a widget
--- @param callback a Lua function
-function android.on_click (me,b,callback)
-    b:setOnClickListener(me:on_click_handler(callback))
-end
-
---- make a Vew.OnLongClickListener.
--- @param me
--- @param callback a Lua function
-function android.on_long_click_handler (me,callback)
-    return (proxy('android.view.View_OnLongClickListener',{
-        onClick = android.safe(callback)
-    }))
-end
-
---- attach a long click handler.
--- @param me
--- @param b a widget
--- @param callback a Lua function
-function android.on_long_click (me,b,callback)
-    b:setOnLongClickListener(me:on_long_click_handler(callback))
-end
-
---- make an AdapterView.OnItemClickListener.
--- @param me
--- @param callback a Lua function
-function android.on_item_click (me,lv,callback)
-    lv:setOnItemClickListener(proxy('android.widget.AdapterView_OnItemClickListener',{
-        onItemClick = android.safe(callback)
-    }))
-end
-
-local function drawable(prefix,name)
-    return A.R_drawable[prefix..'_'..name]
-end
-
---- show an alert.
--- @param me
--- @param title caption of dialog 'label[|drawable]' like with menus
--- above, where 'drawable' is '[android.]name'
--- @param message text within dialog, or a custom view
--- @param callback optional Lua function to be called
-function android.alert(me,title,kind,message,callback)
-    local Builder = bind 'android.app.AlertDialog_Builder'
-    local db = Builder(me.a)
-    local parts = split(title,'|')
-    db:setTitle(parts[1])
-    if parts[2] then
-        db:setIcon(me:drawable(parts[2]))
-    end
-    if type(message) == 'string' then
-        db:setMessage(message)
-    else
-        db:setView(message)
-    end
-    callback = callback or function() end -- for now
-    local listener = proxy('android.content.DialogInterface_OnClickListener', {
-        onClick = android.safe(callback)
-    })
-    if kind == 'ok' then
-        db:setNeutralButton("OK",listener)
-    elseif kind == 'yesno' then
-        db:setPositiveButton("Yes",listener)
-        db:setNegativeButton("No",listener)
-    end
-    dlg = db:create()
-    dlg:setOwnerActivity(me.a)
-    dlg:show()
-end
-
---- show a toast
--- @param me
--- @param text to show
--- @param long true if you want a long toast!
-function android.toast(me,text,long)
-    W.Toast:makeText(me.a,text,long and W.Toast.LENGTH_LONG or W.Toast.LENGTH_SHORT):show()
-end
-
---- suppress initial soft keyboard with edit view.
--- @param me
-function android.no_initial_keyboard(me)
-    local WM_LP = bind 'android.view.WindowManager_LayoutParams'
-    me.a:getWindow():setSoftInputMode(WM_LP.SOFT_INPUT_STATE_HIDDEN)
-end
-
---- make the soft keyboard go bye-bye.
--- @param v an edit view
-function android.dismiss_keyboard (v)
-    local ime = v:getContext():getSystemService(C.Context.INPUT_METHOD_SERVICE)
-    ime:hideSoftInputFromWindow(v:getWindowToken(),0)
-end
-
-local handlers = {}
-
---- start an activity with a callback on result.
--- Wraps `startActivityForResult`.
--- @param me
--- @param intent the Intent
--- @param callback to be called when the result is returned.
-function android.intent_for_result (me,intent,callback)
-    append(handlers,callback)
-    me.a:startActivityForResult(intent,#handlers)
-end
-
-function android.onActivityResult(request,result,intent,mod_handler)
-    print('request',request,intent)
-    local handler = handlers[request]
-    if handler then
-        handler(request,result,intent)
-        table.remove(handlers,request)
-    elseif mod_handler then
-        mod_handler(request,result,intent)
-    else
-        android.activity_result = {request,result,intent}
-    end
-end
-
-function android.give_id (me,w)
-    if w:getId() == -1 then
-        if not me.next_id then
-            me.next_id = 1
-        end
-        w:setId(me.next_id)
-        me.next_id = me.next_id + 1
-    end
-    return w
-end
-
-function android.setViewArgs (me,v,args)
-    if args.id then
-        v:setId(args.id)
-    end
-    -- @doc me.theme is an optional table of view parameters
-    -- that provides defaults; does not override existing parameters.
-    if me.theme then
-        for k,v in pairs(me.theme) do
-            if args[k]==nil then args[k] = v end
-        end
-    end
-    if args.background then
-        v:setBackgroundColor(android.parse_color(args.background))
-    end
-    if args.paddingLeft or args.paddingRight or args.paddingBottom or args.paddingTop then
-        local L,R,B,T = v:getPaddingLeft(), v:getPaddingRight(), v:getPaddingBottom(), v:getPaddingTop()
-        if args.paddingLeft then
-            L = me:parse_size(args.paddingLeft)
-        end
-        if args.paddingTop then
-            T = me:parse_size(args.paddingTop)
-        end
-        if args.paddingRight then
-            R = me:parse_size(args.paddingRight)
-        end
-        if args.paddingBottom then
-            B = me:parse_size(args.paddingBottom)
-        end
-        v:setPadding(L,T,R,B)
-    end
-    return me:give_id(v)
-end
-
-local function parse_input_type (input)
-    return require 'android.input_type' (input)
-end
-
-function android.setEditArgs (me,txt,args)
-    me:setViewArgs(txt,args)
-    if args.textcolor then
-        txt:setTextColor(android.parse_color(args.textcolor))
-    end
-    if args.size then
-        txt:setTextSize(me:parse_size(args.size))
-    end
-    if args.maxLines then
-        txt:setMaxLines(args.maxLines)
-    end
-    if args.minLines then
-        txt:setMinLines(args.minLines)
-    end
-    if args.lines then
-        txt:setLines(args.lines)
-    end
-    local Typeface,tface = G.Typeface
-    if args.typeface or args.textStyle then
-        if args.typeface then
-            tface = Typeface:create(args.typeface,Typeface.NORMAL)
-        else
-            tface = txt:getTypeface()
-        end
-        if args.textStyle then
-            local style = args.textStyle:upper()
-            tface = Typeface:create(tface,Typeface[style])
-        end
-        txt:setTypeface(tface)
-    end
-    if args.gravity then
-        local gg = split(args.gravity,'|')
-        local g = 0
-        for _,p in ipairs(gg) do
-            g = g + V.Gravity[p:upper()]
-        end
-        txt:setGravity(g)
-    end
-    if args.inputType then -- see android:inputType
-        txt:setInputType(parse_input_type(args.inputType))
-    end
-    if args.scrollable then
-        local smm = bind 'android.text.method.ScrollingMovementMethod':getInstance()
-        txt:setMovementMethod(smm)
-    end
-    local L,T,R,B = args.drawableLeft,args.drawableTop,args.drawableRight,args.drawableBottom
-    local compound = L or T or R or B
-    if compound then
-        local def = type(compound)=='number' and 0 or nil
-        txt:setCompoundDrawablesWithIntrinsicBounds(L or def,T or def,R or def,B or def)
-    end
-end
-
---- parse a colour value.
--- @param c either a number (passed through) or a string like #RRGGBB,
--- #AARRGGBB or colour names like 'red','blue','black','white' etc
-function android.parse_color(c)
-    if type(c) == 'string' then
-        local ok
-        ok,c = pcall(function() return G.Color:parseColor(c) end)
-        if not ok then
-            LS:log("converting colour "..tostring(c).." failed")
-            return G.Color.WHITE
-        end
-    end
-    return c
-end
-
-local TypedValue = bind 'android.util.TypedValue'
-
---- parse a size specification.
--- @param size a number is interpreted as pixels, otherwise a string like '20sp'
--- or '30dp'. (See android.util.TypedValue.COMPLEX_UNIT_*)
--- @return size in pixels
-function android.parse_size(me,size)
-    if type(size) == 'string' then
-        local sz,unit = size:match '(%d+)(.+)'
-        sz = tonumber(sz)
-        if unit == 'dp' then unit = 'dip' end -- common alias
-        unit = TypedValue['COMPLEX_UNIT_'..unit:upper()]
-        size = TypedValue:applyDimension(unit,sz,me.metrics)
-    end
-    return size
-end
-
-local function handle_args (args)
-    if type(args) ~= 'table' then
-        args = {args}
-    end
-    return args[1] or '',args
-end
-
---- make a button.
+--- create a button.
 -- @param me
 -- @param text of button
 -- @param callback a Lua function or an existing click listener.
 -- This is passed the button as its argument
+-- @treturn W.Button
 function android.button (me,text,callback)
     local b = W.Button(me.a)
     b:setText(text)
@@ -531,6 +577,7 @@ end
 -- @param me
 -- @param args either a string (which is usually the hint, or the text if it
 -- starts with '!') or a table with fields `textColor`, `id`, `background` or `size`
+-- @treturn W.EditText
 function android.editText (me,args)
     local text,args = handle_args(args)
     local txt = W.EditText(me.a)
@@ -546,6 +593,7 @@ end
 -- create a text view.
 -- @param me
 -- @param args as with `android.editText`
+-- @treturn W.TextView
 function android.textView (me,args)
     local text,args = handle_args(args)
     local txt = W.TextView(me.a)
@@ -554,19 +602,11 @@ function android.textView (me,args)
     return txt
 end
 
---- create a text view style.
+--- create an image view.
 -- @param me
--- @param args as in `android.textView`
--- @return a function that creates a text view from text
-function android.textStyle (me,args)
-    return function(text)
-        local targs = table_copy(args)
-        targs[1] = text
-        return me:textView(targs)
-    end
-end
-
-function android.imageView(me)
+-- @param args table of properties to be passed to `android.setViewArgs`
+-- @treturn W.ImageView
+function android.imageView(me,args)
     local text,args = handle_args(args)
     local image = W.ImageView(me.a)
     return me:setViewArgs(image,args)
@@ -575,11 +615,12 @@ end
 --- create a simple list view.
 -- @param me
 -- @param items a list of strings
+-- @treturn W.ListView
 function android.listView(me,items)
     local lv = W.ListView(me.a)
-    local adapter = ArrayAdapter(me.a,
-        A.R_layout.simple_list_item_checked,
-       -- R_layout.simple_list_item_1,
+    local adapter = W.ArrayAdapter(me.a,
+        --A.R_layout.simple_list_item_checked,
+        A.R_layout.simple_list_item_1,
         A.R_id.text1,
         L.String(items)
     )
@@ -587,6 +628,11 @@ function android.listView(me,items)
     return me:give_id(lv)
 end
 
+--- create a spinner.
+-- @param me
+-- @param items list of strings; if there is a `prompt` field it
+-- will be used as the Spinner prompt.
+-- @treturn W.Spinner
 function android.spinner (me,items)
     local s = W.Spinner(me.a)
     local sa = W.ArrayAdapter(me.a,
@@ -604,7 +650,8 @@ end
 
 --- create a check box.
 -- @param me
--- @param args as in `android.textView`
+-- @param args as in `android.imageView`
+-- @treturn W.CheckBox
 function android.checkBox (me,args)
     local text,args = handle_args(args)
     local check = W.CheckBox(me.a)
@@ -615,6 +662,7 @@ end
 --- create a toggle button.
 -- @param me
 -- @param args must have `on` and `off` labels; otherwise as in `android.textView`
+-- @treturn W.ToggleButton
 function android.toggleButon (me,args)
     local tb = W.ToggleButton(me.a)
     tb:setTextOn (args.on)
@@ -625,8 +673,8 @@ end
 --- create a radio group.
 -- @param me
 -- @param items a list of strings
--- @return radio group
--- @return any buttons generated
+-- @treturn W.RadioGroup
+-- @treturn {W.RadioButton}
 function android.radioGroup (me,items)
     local rg = W.RadioGroup(me.a)
     for i,item in ipairs(items) do
@@ -642,6 +690,7 @@ end
 -- @param me
 -- @param t may be a drawing function, or a table that defines `onDraw`
 -- and optionally `onSizeChanged`. It will receive the canvas.
+-- @treturn .LuaView
 function android.luaView(me,t)
     if type(t) == 'function' then
         t = { onDraw = t }
@@ -726,11 +775,13 @@ local function linear (me,vertical,t)
     return ll
 end
 
---- a vertical layout.
+--- create a vertical layout.
 -- @param me
 -- @param t a list of controls, optionally separated by layout strings or tables
--- for example, `{w1,'+',w2} will give `w1` a weight of 1 in the layout.
--- Tables of form {width=number,fill=false,gravity=string,weight=number}
+-- for example, `{w1,'+',w2} will give `w1` a weight of 1 in the layout;
+-- tables of form {width=number,fill=false,gravity=string,weight=number}
+-- Any fields are processed as in 'android.setViewArgs`
+-- @treturn W.LinearLayout
 function android.vbox (me,t)
     local vbox = linear(me,true,t)
     if t.scrollable then
@@ -742,9 +793,10 @@ function android.vbox (me,t)
     end
 end
 
---- a horizontal layout.
+--- create a horizontal layout.
 -- @param me
 -- @param t a list of controls, as in `android.vbox`.
+-- @treturn W.LinearLayout
 function android.hbox (me,t)
     local hbox = linear(me,false,t)
     if t.scrollable then
@@ -754,14 +806,6 @@ function android.hbox (me,t)
     else
         return hbox
     end
-end
-
---- launch a Lua activity.
--- @param me
--- @param mod a Lua module name that defines the activity
--- @param arg optional extra value to pass to activity
-function android.luaActivity (me,mod,arg)
-    return service:launchLuaActivity(me.a,mod,arg)
 end
 
 local function lua_adapter(me,items,impl)
@@ -774,15 +818,16 @@ end
 --- create a Lua list view.
 -- @param me
 -- @param items a list of Lua values
--- @param optional implementation - not needed if `me`
+-- @param impl optional implementation - not needed if `me`
 -- has a getView function. May be a function, and then it's
 -- assumed to be getView.
--- @return list view
--- @return adapter
+-- @treturn W.ListView
+-- @treturn .LuaListAdapter
 function android.luaListView (me,items,impl)
     local adapter = lua_adapter(me,items,impl)
     local lv = W.ListView(me.a)
     lv:setAdapter(adapter)
+    lv:setTag(items)
     return me:give_id(lv), adapter
 end
 
@@ -792,8 +837,8 @@ end
 --  has a `group` field for the corresponding group data.
 -- @param impl a table containing at least `getGroupView` and `getChildView`
 -- implementations. (see `example.ela.lua`)
--- @return list view
--- @return adapter
+-- @treturn W.ListView
+-- @treturn W.ExpandableListAdapter
 function android.luaExpandableListView (me,items,impl)
     local onChildClick = impl.onChildClick
     impl.onChildClick = nil
@@ -817,18 +862,54 @@ end
 --- create a Lua grid view.
 -- @param me
 -- @param items a table of Lua values
--- @param number of columns (-1 for as many as possible)
--- @param optional implementation - not needed if `me`
+-- @number ncols number of columns (-1 for as many as possible)
+-- @param impl optional implementation - not needed if `me`
 -- has a getView function. May be a function, and then it's
 -- assumed to be getView.
--- @return list view
--- @return adapter
+-- @return W.GridView
+-- @treturn .LuaListAdapter
 function android.luaGridView (me,items,ncols,impl)
     local adapter = lua_adapter(me,items,impl)
     local lv = W.GridView(me.a)
     lv:setNumColumns(ncols or -1)
     lv:setAdapter(adapter)
     return me:give_id(lv), adapter
+end
+
+--- Acitivies.
+-- @section activities
+
+--- launch a Lua activity.
+-- @param me
+-- @param mod a Lua module name that defines the activity
+-- @param arg optional extra value to pass to activity
+function android.luaActivity (me,mod,arg)
+    return service:launchLuaActivity(me.a,mod,arg)
+end
+
+local handlers = {}
+
+--- start an activity with a callback on result.
+-- Wraps `startActivityForResult`.
+-- @param me
+-- @tparam Intent intent
+-- @func callback to be called when the result is returned.
+function android.intent_for_result (me,intent,callback)
+    append(handlers,callback)
+    me.a:startActivityForResult(intent,#handlers)
+end
+
+function android.onActivityResult(request,result,intent,mod_handler)
+    print('request',request,intent)
+    local handler = handlers[request]
+    if handler then
+        handler(request,result,intent)
+        table.remove(handlers,request)
+    elseif mod_handler then
+        mod_handler(request,result,intent)
+    else
+        android.activity_result = {request,result,intent}
+    end
 end
 
 --- make a new AndroLua module.

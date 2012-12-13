@@ -3,13 +3,17 @@ password = require 'android'.new()
 
 function password.create (me)
 
-    me.title = me:textView{'Enter user name and password:',size='20sp',textColor='white'}
+    me.title = me:textView{
+        'Enter user name and password:',
+        size='20sp',textColor='white'
+    }
     me.name = me:editText{'Your UserName',inputType='textPersonName'}
     me.password = me:editText{'Your Password',inputType='textPassword'}
     me.viewPassword = me:checkBox 'view password'
 
     me:on_click(me.viewPassword,function(v)
-        me:setEditArgs(me.password,{inputType = v:Ischecked() and 'text' or 'textPassword'})
+        local type = v:isChecked() and 'text' or 'textPassword'
+        me:setEditArgs(me.password,{inputType=type})
     end)
 
     local function get_text (v)
