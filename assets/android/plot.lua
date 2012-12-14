@@ -53,7 +53,7 @@ function set_alpha (c,alpha)
     return Color:argb(alpha,R,G,B)
 end
 
-local function stroke ()
+local function newstroke ()
     local style = G.Paint()
     style:setStyle(STROKE)
     return style
@@ -71,7 +71,7 @@ local function fill_paint (clr)
 end
 
 local function stroke_paint (clr,width,effect)
-    local style = stroke()
+    local style = newstroke()
     set_color(style,clr)
     if width then
         style:setStrokeWidth(width)
@@ -84,7 +84,7 @@ local function stroke_paint (clr,width,effect)
 end
 
 local function text_paint (size,clr)
-    local style = stroke()
+    local style = newstroke()
     style:setTextSize(size)
     if clr then
         set_color(style,clr)
@@ -102,7 +102,7 @@ end
 
 local flot_colours = {PC"#edc240", PC"#afd8f8", PC"#cb4b4b", PC"#4da74d", PC"#9440ed"}
 
-local Series,Axis,Legend,Anot = {},{},{},{}
+local Series,Axis,Legend,Anot,TextAnot = {},{},{},{},{}
 
 function Plot.new (t)
     local self = make_object({},Plot)
@@ -171,7 +171,16 @@ function Plot:add_series (s)
 end
 
 function Plot:add_annotation (a)
-    add(self.annotations,Anot.new(self,a))
+    local anot = a.text and TextAnot.new(self,a) or Anot.new(self,a)
+    add(self.annotations,anot)
+end
+
+function Plot:get_series (idx)
+    return self.series[idx]  -- array index _or_ tag
+end
+
+function Plot:get_annotation (idx)
+    return self.annotations[idx]  -- array index _or_ tag
 end
 
 make_callable(Plot,Plot.new)
@@ -279,10 +288,6 @@ function Plot:next_colour ()
     return self.colours [#self.series % #self.colours + 1]
 end
 
-function Plot:get_series (idx)
-    return self.series[idx]  -- array index _or_ tag
-end
-
 function Plot:resized(w,h)
     -- do we even use this anymore?
     self.width = w
@@ -364,15 +369,42 @@ function Plot:corner (cnr,width,height,M)
     local x,y
     if H == 'L' then
         x = M.left
-    else
+    elseif H == 'R' then
         x = WX - (width + M.right)
+    elseif H == 'C' then
+        x = (WX - width)/2
     end
     if V == 'T' then
         y = M.top
-    else
+    elseif V == 'B' then
         y = HY - (height + M.bottom)
+    elseif V == 'C' then
+        y = (HY - height)/2
+    end
+    if not x or not y then
+        error("bad corner specification",2)
     end
     return x,y
+end
+
+function Plot:align (cnr,width,height,M,xp,yp)
+    local H,V = cnr:match '(.)(.)'
+    local dx,dy
+    M = M or self.outer_margin
+    if H == 'L' then
+        dx = - M.left - width
+    elseif H == 'R' then
+        dx = M.right
+    end
+    if V == 'T' then
+        dy = - M.top - height
+    elseif V == 'B' then
+        dy = M.bottom
+    end
+    if not dx or not dy then
+        error("bad align specification",2)
+    end
+    return xp+dx,yp+dy
 end
 
 -- Axis class ------------
@@ -748,7 +780,7 @@ function Series:draw(c)
         draw_poly (self,c,self.xdata,self.ydata,self.linestyle)
     end
     if self.fillstyle then
-        print('filling',self.tag)
+        --print('filling',self.tag)
         draw_poly (self,c,self.xfill,self.yfill,self.fillstyle)
     end
     if self.pointstyle then
@@ -823,13 +855,24 @@ function Anot:update()
     local top
     local xmin,xmax,ymin,ymax = self.xaxis.min,self.xaxis.max,self.yaxis.min,self.yaxis.max
     local series = self.series
+    self.points = {}
+
+    local function append (name,xp,yp)
+        local pt = {xp,yp}
+        lines:append (pt)
+        self.points[name] = pt
+    end
 
     --print('y',self.y,self.y1,self.fillstyle,self.linestyle)
     if self.fillstyle then
+        self.horz = x1 == nil
         if not series then -- a filled box {x1,y1,x2,y2}
             local x1,x2 = clamp(self.x1,self.x2,xmin,xmax)
             local y1,y2 = clamp(self.y1,self.y2,ymin,ymax)
-            lines:extend {{x1,y1},{x2,y1},{x2,y2},{x1,y2},{x1,y1}}
+            append('start',x1,y1)
+            lines:extend {{x2,y1},{x2,y2}}
+            append('last',x1,y2)
+            lines:append{x1,y1} -- close the poly
         else
             -- must clamp x1,x2 to series bounds!
             local bounds = series:bounds()
@@ -837,21 +880,23 @@ function Anot:update()
             local top1,i1 = series:get_x_intersection(x1)
             local top2,i2 = series:get_x_intersection(x2)
             -- closed polygon including chunk of series that we can fill!
-            lines:append {x1,ymin}
+            append('start',x1,ymin)
             lines:extend (series:get_data_range(i1,i2))
-            lines:append {x2,ymin}
+            append('last',x2,ymin)
         end
     else -- line annotation
         local x,y = self.x,self.y
-        lines:append {x or xmin,y or ymin}
+        self.horz = x == nil
+        append('start',x or xmin,y or ymin)
         if not series then -- just a vertical or horizontal line
-            lines:append {x or xmax,y or ymax}
-        else -- try to intersect!
+            append('last',x or xmax,y or ymax)
+        else -- try to intersect (only x intersection for now)
             top = series:get_x_intersection(x)
             if top then
-                lines:extend {{x,top},{xmin,top}}
+                append('intersect',x,top)
+                append('last',xmin,top)
             else
-                lines:append {x,ymax}
+                append('last',x,ymax)
             end
         end
     end
@@ -866,13 +911,100 @@ function Anot:update()
     if self.fillstyle then
         self.linestyle = nil
         self.xfill, self.yfill = self.xdata, self.ydata
-        print(self.xfill)
-        print(self.yfill)
+        --print(self.xfill)
+        --print(self.yfill)
     end
 end
 
 function Anot:draw(c)
     Series.draw(self,c)
+end
+
+function Anot:get_point (which)
+    local pt = self.points[which]
+    if not pt then return nil, 'no such point' end
+    return pt[1],pt[2]
+end
+
+local function set_box (self,plot)
+    -- inner padding
+    local P = self.padding or plot.pad/2
+    self.padding = {P,P,P,P} --inner
+    self.plot = plot
+
+    -- text style
+    local paint
+    if self.size then
+        self.color = self.color or plot.color
+        paint = text_paint(android.me:parse_size(self.size),self.color)
+    else
+        paint = plot.xaxis.label_paint
+    end
+    self.label_paint = paint
+
+    -- box stuff
+    self.stroke = plot.axis_paint
+    self.background = fill_paint(self.fill or plot.theme.background)
+end
+
+local function text_extent (self,text)
+    return self.plot.xaxis:get_label_extent(text or self.text,self.label_paint)
+end
+
+function TextAnot.new(plot,t)
+    t.anot = t.anot and plot:get_annotation(t.anot)
+    set_box(t,plot)
+    return make_object(t,TextAnot)
+end
+
+function Plot.scale (plot,x,y)
+    return plot.xaxis.scale(x),plot.yaxis.scale(y)
+end
+
+local function default_align (anot,point)
+    if anot:get_point 'intersect' then
+        if point ~= 'intersect' then -- points on axes
+            local X,Y = 'LT','RT'
+            -- order of 'first' and 'last' is reversed for horizontal lines
+            if anot.horz then Y,X = X,Y end
+            return point=='start' and X or Y
+        else
+            return 'LT'
+        end
+    else -- straight horizontal or vertical line
+        --print('horz',anot.horz,point)
+        if anot.horz then
+            return point=='start' and 'RT' or 'LT'
+        else
+            return point=='start' and 'LT' or 'LB'
+        end
+    end
+
+end
+
+function TextAnot:update ()
+    local xs,ys
+    local plot = self.plot
+    local w,h = text_extent(self)
+    if not self.anot then -- we align to the edges of the plotbox
+        self.cnr = self.corner or 'CT'
+        xs,ys = plot:corner(self.cnr,w,h,empy_margin)
+    else -- align to the points of the annotation
+        self.cnr = self.corner or default_align(self.anot,self.point)
+        px,py = self.anot:get_point(self.point)
+        px,py = plot:scale(px,py)
+        xs,ys = plot:align(self.cnr,w,h,empty_margin,px,py)
+        --print('point',xs,ys)
+    end
+    self.xp = xs
+    self.yp = ys + h
+end
+
+local empty_margin = {left=0,top=0,right=0,bottom=0}
+
+function TextAnot:draw (c)
+    --print('draw',self.xp,self.yp)
+    c:drawText(self.text,self.xp,self.yp,self.label_paint)
 end
 
 -- Legend class ----------
@@ -882,21 +1014,11 @@ function Legend.new (plot,t)
     elseif t == nil then
         t = {}
     end
-    local self = make_object(t or {},Legend)
-    self.plot = plot
-    self.cnr = self.corner or 'RT'
-
-    local P = t.padding or plot.pad/2
-    self.padding = {P,P,P,P} --inner
-    self.sample_width = t.sample_width or plot.sample_width
-
-    self.stroke = plot.axis_paint
-    self.label_paint = plot.xaxis.label_paint
-    self.background = fill_paint(t.fill or plot.theme.background)
-    return self
+    t.cnr = t.corner or 'RT'
+    t.sample_width = t.sample_width or plot.sample_width
+    set_box(t,plot)
+    return make_object(t or {},Legend)
 end
-
-local empty_margin = {left=0,top=0,right=0,bottom=0}
 
 function Legend:draw (c)
     local plot = self.plot
@@ -908,7 +1030,7 @@ function Legend:draw (c)
 
     -- can now calculate our bounds and ask for our position
     local sw = self.sample_width
-    local w,h = plot.xaxis:get_label_extent(wlabel)
+    local w,h = text_extent(self,wlabel)
     local W,H
     local dx,dy,n = P[1],P[2],#series
     if not self.across then
