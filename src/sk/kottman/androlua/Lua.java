@@ -321,7 +321,6 @@ public class Lua extends Service {
 						out.println("waiting ");
 						out.flush();						
 						writer = writeServer.accept();
-						//Log.d("client","writer accepted");
 						printer = new PrintWriter(writer.getOutputStream());
 					} else if (line.equals("combine")) { // _all_ output goes to 3333!
 						printer = out;
@@ -363,7 +362,6 @@ public class Lua extends Service {
 							});
 						}
 					}
-					//Log.d("client","client disconnect");
 					client.close();
 					if (writer != null)
 						writer.close();
