@@ -68,6 +68,28 @@ local function prep_for_send (s)
     return (s:gsub('\n','\001'))
 end
 
+local function exists (f)
+  local f,err = io.open(f)
+  if f then
+    f:close()
+    return true
+   end
+end
+
+local function mod2file (mod)
+    local root = mod:gsub('%.','/')
+    local file = root..'.lua'
+    if not exists(file) then
+        file = root..'/init.lua'
+        mod = mod..'.init'
+        if not exists(file) then
+            return nil,"module not found"
+        end
+    end
+    print('mod',mod,file)
+    return mod,file
+end
+
 function readfile(file)
   local f,err = io.open(file)
   if not f then return nil,err end
@@ -103,7 +125,8 @@ function interp.process_line (line)
         elseif file then -- either .l (load) or .m (upload module)
             local mod,kind = file,'run'
             if cmd == 'm' then -- given in Lua module form
-              file = mod:gsub('%.','/')..'.lua'
+              mod,file = mod2file(mod)
+              if not mod then return print(file) end
               kind = 'mod'
             end
             line,err = readfile(file)

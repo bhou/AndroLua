@@ -35,10 +35,19 @@ end
 -- mebbe have a module for these useful things (or Microlight?)
 local split = android.split
 
-local function table_copy (t,res)
-    res = res or {}
-    for k,v in pairs(t) do res[k] = v end
-    return res
+--- copy items from `src` to `dest`.
+-- @tab src
+-- @tab dest (may be `nil`, in which case create)
+-- @bool dont_overwrite if `true` then don't overwrite fields in `dest`
+-- that already exist.
+function android.copytable (src,dest,dont_overwrite)
+    dest = dest or {}
+    for k,v in pairs(src) do
+        if not dont_overwrite or dest[k]==nil then
+            dest[k] = v
+        end
+    end
+    return dest
 end
 
 local app_package
@@ -376,9 +385,7 @@ function android.setViewArgs (me,v,args)
     -- @doc me.theme is an optional table of view parameters
     -- that provides defaults; does not override existing parameters.
     if me.theme then
-        for k,v in pairs(me.theme) do
-            if args[k]==nil then args[k] = v end
-        end
+        android.copytable(me.theme,args,true)
     end
     if args.background then
         v:setBackgroundColor(android.parse_color(args.background))
@@ -469,7 +476,7 @@ local function handle_args (args)
     if type(args) ~= 'table' then
         args = {args}
     end
-    return args[1] or '',args
+    return args[1] or args.text or '',args
 end
 
 --- create a text view style.
@@ -478,7 +485,7 @@ end
 -- @return a function that creates a text view from a string
 function android.textStyle (me,args)
     return function(text)
-        local targs = table_copy(args)
+        local targs = android.copytable(args)
         targs[1] = text
         return me:textView(targs)
     end
@@ -630,10 +637,12 @@ end
 
 --- create a spinner.
 -- @param me
--- @param items list of strings; if there is a `prompt` field it
--- will be used as the Spinner prompt.
+-- @param args list of strings; if there is a `prompt` field it
+-- will be used as the Spinner prompt. Alternatively strings are found
+-- in `options` field
 -- @treturn W.Spinner
-function android.spinner (me,items)
+function android.spinner (me,args)
+    local items = args.options or args
     local s = W.Spinner(me.a)
     local sa = W.ArrayAdapter(me.a,
         A.R_layout.simple_spinner_item,

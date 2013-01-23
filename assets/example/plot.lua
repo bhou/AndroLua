@@ -17,7 +17,6 @@ function draw.create (me)
 
     local samples = Plot.array{0.1, 0.8*pi,1.2*pi,2*pi-0.3}
 
-    --[[
     local plot = Plot.new {
         grid = true,
         fill = '#EFEFFF', -- fill the plot area with light blue
@@ -43,7 +42,6 @@ function draw.create (me)
             ydata = samples:map(math.cos)
         }
     }
-    --]]
 
     local xvalues = Plot.array(0,10,0.1)
 
@@ -54,7 +52,7 @@ function draw.create (me)
         return math.exp(-(x-mu)^2/sfact)/(spi*sigma)
     end
 
-    plot2 = Plot.new {
+    local plot2 = Plot.new {
         aspect_ratio = 0.5,
         padding = pad,
         legend = {box=false,corner='LT'},
@@ -71,8 +69,8 @@ function draw.create (me)
             tag = '6'
         },
         annotations = {
-            {x = 4, series='5', points=true,tag='intersect'},
-            {x1 = 5.5, x2 = 6.5, color='#10000000',series=2,tag='fill'},
+            {x = 4, series='5', points=true},
+            {x1 = 5.5, x2 = 6.5, color='#10000000',series=2},
         }
     }
 
@@ -87,7 +85,7 @@ function draw.create (me)
 
     return me:vbox{
         caption 'Plot Examples',
-        --plot:view(me),
+        plot:view(me),
         plot2:view(me)
     }
 end

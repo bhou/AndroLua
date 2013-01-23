@@ -227,7 +227,6 @@ public class Lua extends Service {
 			// stack is now -3 chunk -2 debug -1 traceback
 			L.remove(-2);
 			L.pushValue(-2);			
-			//L.insert(-2); 
 			printToString = true;
 			ok = L.pcall(0, 0, -2);
 			printToString = false;
@@ -336,6 +335,9 @@ public class Lua extends Service {
 							String file = getFilesDir()+"/"+mod.replace('.', '/')+".lua";
 							File path = new File(file).getParentFile();
 							path.mkdirs();
+							if (mod.endsWith(".init")) {
+								mod = mod.substring(0,mod.indexOf(".init"));
+							}
 							FileWriter fw = new FileWriter(file);
 							fw.write(s);
 							fw.close();	 

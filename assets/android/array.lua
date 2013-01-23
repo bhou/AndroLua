@@ -129,7 +129,7 @@ function array:at (idx)
     local i,delta = fsplit(idx)
     local res = self[i]
     if delta ~= 0 then
-        res = res + delta*(self[i+1]-self[i])
+        res = delta*(self[i+1]-self[i])
     end
     return res
 end

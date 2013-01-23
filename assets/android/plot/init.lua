@@ -860,7 +860,6 @@ function Anot:update()
     local function append (name,xp,yp)
         local pt = {xp,yp}
         lines:append (pt)
-        --print('app',name,xp,yp,self.tag or '?')
         self.points[name] = pt
     end
 
@@ -872,7 +871,7 @@ function Anot:update()
             local y1,y2 = clamp(self.y1,self.y2,ymin,ymax)
             append('start',x1,y1)
             lines:extend {{x2,y1},{x2,y2}}
-            append('end',x1,y2)
+            append('last',x1,y2)
             lines:append{x1,y1} -- close the poly
         else
             -- must clamp x1,x2 to series bounds!
@@ -883,21 +882,21 @@ function Anot:update()
             -- closed polygon including chunk of series that we can fill!
             append('start',x1,ymin)
             lines:extend (series:get_data_range(i1,i2))
-            append('end',x2,ymin)
+            append('last',x2,ymin)
         end
     else -- line annotation
         local x,y = self.x,self.y
         self.horz = x == nil
         append('start',x or xmin,y or ymin)
         if not series then -- just a vertical or horizontal line
-            append('end',x or xmax,y or ymax)
+            append('last',x or xmax,y or ymax)
         else -- try to intersect (only x intersection for now)
             top = series:get_x_intersection(x)
             if top then
                 append('intersect',x,top)
-                append('end',xmin,top)
+                append('last',xmin,top)
             else
-                append('end',x,ymax)
+                append('last',x,ymax)
             end
         end
     end
@@ -966,52 +965,45 @@ local function default_align (anot,point)
     if anot:get_point 'intersect' then
         if point ~= 'intersect' then -- points on axes
             local X,Y = 'LT','RT'
-            -- order of 'first' and 'end' is reversed for horizontal lines
+            -- order of 'first' and 'last' is reversed for horizontal lines
             if anot.horz then Y,X = X,Y end
             return point=='start' and X or Y
         else
             return 'LT'
         end
     else -- straight horizontal or vertical line
+        --print('horz',anot.horz,point)
         if anot.horz then
             return point=='start' and 'RT' or 'LT'
         else
             return point=='start' and 'LT' or 'LB'
         end
     end
-end
 
-local empty_margin = {left=0,top=0,right=0,bottom=0}
+end
 
 function TextAnot:update ()
     local xs,ys
     local plot = self.plot
     local w,h = text_extent(self)
-    local px,py
-    if self.anot then
-        px,py = self.anot:get_point(self.point)
-    else
-        px,py = self.x, self.y
-    end
-    if not px and not py then -- we align to the edges of the plotbox
+    if not self.anot then -- we align to the edges of the plotbox
         self.cnr = self.corner or 'CT'
         xs,ys = plot:corner(self.cnr,w,h,empy_margin)
     else -- align to the points of the annotation
-        if not self.corner then
-            local c = 'LT'
-            if self.anot then c = default_align(self.anot,self.point) end
-            self.corner = c
-        end
-        self.cnr = self.corner
-
+        self.cnr = self.corner or default_align(self.anot,self.point)
+        px,py = self.anot:get_point(self.point)
         px,py = plot:scale(px,py)
         xs,ys = plot:align(self.cnr,w,h,empty_margin,px,py)
+        --print('point',xs,ys)
     end
     self.xp = xs
     self.yp = ys + h
 end
 
+local empty_margin = {left=0,top=0,right=0,bottom=0}
+
 function TextAnot:draw (c)
+    --print('draw',self.xp,self.yp)
     c:drawText(self.text,self.xp,self.yp,self.label_paint)
 end
 
