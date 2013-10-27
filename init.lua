@@ -1,7 +1,7 @@
 require 'android.import'
 
 function goapp(mod,arg)
-    service:launchLuaActivity(activity,mod,arg)
+	service:launchLuaActivity(activity,mod,arg)
 end
 
 function killapp()

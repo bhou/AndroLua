@@ -11,22 +11,22 @@ public class LuaListAdapter extends BaseAdapter {
 	Lua lua;
 	Object impl, mod;
 	LuaState L;
-	
+
 	public LuaListAdapter(Lua l, Object mod, Object impl) {
 		lua = l;
 		L = Lua.L;
 		this.impl = impl;
 		this.mod = mod;
 	}
-	
+
 	public void setTable(Object mod) {
 		this.mod = mod;
 		notifyDataSetChanged();
 	}
-	
+
 	public Object getTable(Object mod) {
 		return mod;
-	}	
+	}
 
 	public int getCount() {
 		try {
@@ -36,29 +36,30 @@ public class LuaListAdapter extends BaseAdapter {
 			return len;
 		} catch (LuaException e) {
 			return 0;
-		}		
+		}
 	}
 
 	public Object getItem(int position) {
 		try {
 			L.pushObjectValue(mod);
-			L.pushInteger(position+1);
+			L.pushInteger(position + 1);
 			L.getTable(-2);
 			Object res = L.toJavaObject(-1);
-			L.pop(1);  //2?
+			L.pop(1); // 2?
 			return res;
 		} catch (LuaException e) {
 			return null;
-		}	
+		}
 	}
 
 	public long getItemId(int position) {
 		Object res = lua.invokeMethod(impl, "getItemId");
-		return res != null ? (Long)res : position;		
+		return res != null ? (Long) res : position;
 	}
 
 	public View getView(int position, View convertView, ViewGroup parent) {
-		View v = (View)lua.invokeMethod(impl, "getView",impl,position,convertView,parent);
+		View v = (View) lua.invokeMethod(impl, "getView", impl, position,
+				convertView, parent);
 		if (v == null) { // oops an error in getView!
 			v = parent;
 			L.newTable();

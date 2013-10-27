@@ -1,0 +1,106 @@
+.a first
+killapp()
+
+.m first
+wrote /data/data/sk.kottman.androlua/files/first.lua
+
+goapp 'first'
+
+
+
+
+
+.m first
+Syntax: [string "tmp"]:2: 'end' expected near '<eof>'
+
+
+
+
+Runtime: [string "tmp"]:2: attempt to index global 'me' (a nil value)
+stack traceback:
+	[string "tmp"]:2: in main chunk
+
+
+Syntax: [string "tmp"]:2: unexpected symbol near '<eof>'
+
+
+Syntax: [string "tmp"]:2: unexpected symbol near '<eof>'
+
+easy = require 'android'.new()
+Syntax: [string "tmp"]:2: unexpected symbol near '<eof>'
+
+
+
+local smm = bind 'android.text.method.ScrollingMovementMethod':getInstance()
+Syntax: [string "tmp"]:2: unexpected symbol near '}'
+
+
+Runtime: [string "tmp"]:2: attempt to index global 'me' (a nil value)
+stack traceback:
+	[string "tmp"]:2: in main chunk
+
+function easy.create(me)
+Runtime: [string "tmp"]:2: attempt to index global 'status' (a nil value)
+stack traceback:
+	[string "tmp"]:2: in main chunk
+
+
+
+    local executeBtn = me:button 'Execute!'
+Runtime: [string "tmp"]:2: attempt to index global 'source' (a nil value)
+stack traceback:
+	[string "tmp"]:2: in main chunk
+
+    local source = me:editText {
+
+        size = '20sp',
+Syntax: [string "tmp"]:2: unexpected symbol near '<eof>'
+
+        typeface = 'monospace',
+Syntax: [string "tmp"]:2: unexpected symbol near '<eof>'
+
+        gravity = 'top|left'
+Syntax: [string "tmp"]:2: unexpected symbol near ''+''
+
+    }
+Syntax: [string "tmp"]:2: '=' expected near '<eof>'
+
+    local status = me:textView {'TextView', maxLines = 5 }
+Syntax: [string "tmp"]:2: unexpected symbol near '}'
+
+    status:setMovementMethod(smm) -- make us scrollable!
+
+
+
+    source:setText "print 'hello, world!'"
+Syntax: [string "tmp"]:2: '<eof>' expected near 'end'
+
+
+
+    local layout =  me:vbox{
+
+        executeBtn,
+
+        source,'+',
+
+        status
+
+    }
+wrote /data/data/sk.kottman.androlua/files/first.lua
+
+
+
+    ...
+
+
+
+    return layout
+Syntax: [string "tmp"]:2: 'end' expected near '<eof>'
+
+end
+
+
+Runtime: [string "tmp"]:2: attempt to index global 'me' (a nil value)
+stack traceback:
+	[string "tmp"]:2: in main chunk
+

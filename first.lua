@@ -1,27 +1,27 @@
-require 'import'
-import 'android.widget.*'
+easy = require 'android'.new()
 
-first = {}
+local smm = bind 'android.text.method.ScrollingMovementMethod':getInstance()
 
-function first.onCreate(me, bundle)
-    first.a = me
-   -- local edit,btn,txt
-    edit = EditText(me)
-    edit:setHint 'please?'
-    btn = Button(me)
-    btn:setText 'Click me'
-    txt = TextView(me)
-    txt:setText 'here we go\nagain'  
+function easy.create(me)
 
+    local executeBtn = me:button 'Execute!'
+    local source = me:editText {
+        size = '20sp',
+        typeface = 'monospace',
+        gravity = 'top|left'
+    }
+    local status = me:textView {'TextView', maxLines = 5 }
+    status:setMovementMethod(smm) -- make us scrollable!
 
-    local ll = LinearLayout(me)
-    ll:setOrientation(LinearLayout.VERTICAL)
-    ll:addView(edit)
-    ll:addView(btn)
-    ll:addView(txt)
+    source:setText "print 'hello, world!'"
 
-    return  ll
+    local layout =  me:vbox{
+        executeBtn,
+        source,'+',
+        status
+    }
+
+    return layout
 end
 
-return first
-
+return easy
